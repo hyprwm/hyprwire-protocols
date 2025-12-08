@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="hp_hyprtavern_core_v1" version="1">
+  <copyright>
+    BSD 3-Clause License
+
+    Copyright (c) 2025, Hypr Development
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice, this
+        list of conditions and the following disclaimer.
+
+    2. Redistributions in binary form must reproduce the above copyright notice,
+        this list of conditions and the following disclaimer in the documentation
+        and/or other materials provided with the distribution.
+
+    3. Neither the name of the copyright holder nor the names of its
+        contributors may be used to endorse or promote products derived from
+        this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  </copyright>
+
+  <description>
+    The hyprtavern core protocol describes how applications can connect to a
+    hyprtavern bus, expose themselves, and discover other applications running
+    on the same bus.
+  </description>
+
+  <enum name="bus_query_filter_mode">
+    <value idx="0" name="all" description="all names must be present"/>
+    <value idx="1" name="any" description="any single name must be present"/>
+  </enum>
+
+  <enum name="bus_manager_errors">
+    <value idx="0" name="invalid_property" description="property entry was invalid"/>
+  </enum>
+
+  <object name="hp_hyprtavern_core_manager_v1" version="1">
+    <description summary="Core manager object">
+      This object is a core manager object bound upon creation.
+    </description>
+
+    <!-- TODO: <c2s name="link_security">
+      <description summary="Link with the security protocol">
+        This request links this manager to a given security context object from hp_hyprtavern_security_v1.
+
+        The argument is the UUID token obtained from hp_hyprtavern_security_v1.
+
+        If security is not linked, this manager has by default no privilege groups.
+      </description>
+      <arg name="token" type="varchar" summary="Token obtained from hp_hyprtavern_security_v1"/>
+    </c2s> -->
+
+    <c2s name="get_bus_object">
+      <description summary="Create a bus object">
+        Create a bus object on the bus. See hp_hyprtavern_bus_object_v1 for more.
+
+        You are allowed to expose multiple objects, but it is discouraged.
+
+        object_name does not have to be unique on the bus.
+      </description>
+      <arg name="object_name" type="varchar" summary="A human-readable, short name for the object"/>
+      <returns iface="hp_hyprtavern_bus_object_v1"/>
+    </c2s>
+
+    <c2s name="get_query_object">
+      <description summary="Create a query object">
+        Create a query object. A query object takes an array of protocol names as input. 
+
+        Optionally, you can include a list of properties to filter by. If you do not wish to add
+        any, leave the array empty.
+
+        Each string in the list of properties must come in the form of (name)=(value).
+        An invalid_property error is raised otherwise.
+
+        Leaving the protocol_names empty will return all objects on the bus.
+      </description>
+      <arg name="protocol_names" type="array varchar" summary="An array of protocol names to query by"/>
+      <arg name="protocol_names_filter" type="enum" interface="bus_query_filter_mode" summary="Filter mode for the array of protocol names"/>
+      <arg name="property_list" type="array varchar" summary="An array of properties"/>
+      <arg name="property_list_filter" type="enum" interface="bus_query_filter_mode" summary="Filter mode for the array of properties"/>
+      <returns iface="hp_hyprtavern_query_object_v1"/>
+    </c2s>
+
+    <c2s name="get_object_handle">
+      <description summary="Create an object handle">
+        Create an object handle. Given an object ID, this object will return information about
+        the bus object.
+      </description>
+      <arg name="id" type="uint" summary="Bus object ID"/>
+      <returns iface="hp_hyprtavern_bus_object_handle_v1"/>
+    </c2s>
+
+    <s2c name="destroy" destructor="true">
+      <description summary="Destroy the manager">
+        This request destroys the manager. All objects remain valid until they are destroyed.
+
+        Existing socket connections are not closed. Socket directory obtained with socket_dir
+        is removed once all objects are destroyed.
+      </description>
+    </s2c>
+  </object>
+
+  <enum name="bus_object_errors">
+    <value idx="0" name="invalid_socket_path" description="socket path chosen is illegal"/>
+    <value idx="1" name="invalid_property_name" description="chosen property name is illegal"/>
+  </enum>
+
+  <object name="hp_hyprtavern_bus_object_v1" version="1">
+    <description summary="A bus object">
+      This object is a bus object representing an open, exposed object on the
+      bus.
+    </description>
+
+    <s2c name="socket_dir">
+      <description summary="Directory for the hyprwire socket">
+        This event is sent immediately after creation of an object. The bus will
+        provide a path that the client must create their hyprwire socket in.
+      </description>
+      <arg name="path" type="varchar" summary="directory path"/>
+    </s2c>
+
+    <c2s name="socket_path">
+      <description summary="Path to the hyprwire socket">
+        Once the client receives the socket_dir event, it must create a hyprwire server
+        socket for incoming connections. Once that is done, the path to it must be
+        sent via this request.
+
+        The path must be inside socket_dir, but can be in a subdirectory, e.g.:
+        socket_dir = /run/user/1000/hyprtavern/11/
+        socket_path = /run/user/1000/hyprtavern/11/my_app/socket.sock
+
+        It is recommended to avoid any unnecessary subdirectories. socket_dir
+        is per-connection.
+
+        Once this request is sent, the object becomes valid and exposed on the bus.
+      </description>
+      <arg name="path" type="varchar" summary="directory path"/>
+    </c2s>
+
+    <c2s name="expose_protocol">
+      <description summary="Expose a supported protocol">
+        Explicitly exposes a supported protocol alongside the revision version
+        on the object.
+
+        This allows other apps to discover a given protocol via the bus, but does not
+        prevent an unexposed protocol from being bound. An app can still get all supported
+        protocols in the handshake upon connection.
+
+        If one wants to restrict protocol access, filtering must be done manually.
+
+        For security popups, control, and access, check the hp_hyprtavern_security_v1
+        protocol.
+      </description>
+      <arg name="protocol_name" type="varchar" summary="protocol name"/>
+      <arg name="version" type="uint" summary="protocol max revision version"/>
+    </c2s>
+
+    <c2s name="expose_property">
+      <description summary="Expose a string property">
+        Objects can expose properties that help other processes looking for an interface
+        to distinguish objects apart.
+
+        These properties can be arbitrary, but should follow standard conventions described
+        in the specific protocols, or global, agreed upon values, e.g. environment.
+
+        Used protocol(s) should specify methods of discovery in their descriptions.
+
+        Property names must come in the form of (group):(name). Group of "GLOBAL" describes
+        a non-protocol-specific property, e.g. GLOBAL:WAYLAND_DISPLAY. Both group and name
+        must be strings containing only letters, numbers, _ or +.
+
+        Setting a property value to an empty string removes the property.
+
+        Properties must not be used for data that is rapidly changing, and must not be used
+        for "quick data access". They have no security restrictions and are not designed for
+        anything other than discovery. For data access, you must use a separate protocol.
+      </description>
+      <arg name="property_name" type="varchar" summary="name of the property"/>
+      <arg name="property_value" type="varchar" summary="string value of the property"/>
+    </c2s>
+
+    <s2c name="destroy" destructor="true">
+      <description summary="Destroy an object">
+        This request destroys the object and removes it from discovery.
+
+        Existing socket connections are not closed. Socket directory obtained with socket_dir
+        is not removed until the manager is destroyed.
+      </description>
+    </s2c>
+  </object>
+
+  <object name="hp_hyprtavern_bus_query_v1" version="1">
+    <description summary="A bus query">
+      This object is a query object returning data about the query.
+
+      Immediately after receiving results, destroy should be called to avoid
+      leaking wire protocol objects.
+    </description>
+
+    <s2c name="results">
+      <description summary="Query results">
+        This event returns an array of object IDs that matched the requested
+        query. These IDs can be used with the manager to create a handle and inspect
+        a given object.
+      </description>
+      <arg name="matches" type="array uint" summary="matched IDs"/>
+    </s2c>
+
+    <s2c name="destroy" destructor="true">
+      <description summary="Destroy a query object">
+        This request destroys the query object.
+      </description>
+    </s2c>
+  </object>
+
+  <object name="hp_hyprtavern_bus_object_handle_v1" version="1">
+    <description summary="A bus object handle">
+      This object is a handle to an existing bus object. It will return detailed
+      data about the object.
+    </description>
+
+    <s2c name="failed">
+      <description summary="Failed">
+        This event is sent if the bus failed to obtain a given object. This could be
+        due to insufficient permissions, or an object not existing.
+
+        This handle should be destroyed. No further information will be sent.
+      </description>
+    </s2c>
+
+    <s2c name="protocols">
+      <description summary="Protocols">
+        This event contains the exposed protocols of the object. Two arrays describe names and
+        revisions.
+
+        For example, protocol at protocol_names index 0's max supported version is described by protocol_revs
+        at index 0, and so on.
+      </description>
+
+      <arg name="protocol_names" type="array varchar" summary="names of the protocols"/>
+      <arg name="protocol_revs" type="array uint" summary="supported revisions of the protocols"/>
+    </s2c>
+    
+    <s2c name="properties">
+      <description summary="Properties">
+        This event contains the exposed properties of the object.
+
+        A single array describes the properties in the form of (name)=(value).
+      </description>
+
+      <arg name="properties" type="array varchar" summary="properties exposed"/>
+    </s2c>
+
+    <s2c name="socket">
+      <description summary="Socket file">
+        This event carries the full path to the hyprwire socket file of this object.
+      </description>
+
+      <arg name="path" type="varchar" summary="socket file path"/>
+    </s2c>
+
+    <s2c name="done">
+      <description summary="Finished sending events">
+        All data about this handle has been sent. No further data will be sent,
+        this object should be destroyed.
+      </description>
+    </s2c>
+
+    <s2c name="destroy" destructor="true">
+      <description summary="Destroy a query object">
+        This request destroys the object handle.
+      </description>
+    </s2c>
+  </object>
+</protocol>
