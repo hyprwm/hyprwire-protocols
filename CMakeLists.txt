@@ -14,10 +14,18 @@ include(GNUInstallDirs)
 set(PROTOCOL_FILES protocols/hyprtavern/hp_hyprtavern_core_v1.xml)
 
 foreach(PROTOCOL_FILE ${PROTOCOL_FILES})
-  get_filename_component(PROTOCOL_DIR ${PROTOCOL_FILE} DIRECTORY)
+  get_filename_component(ABSOLUTE_PROTOCOL_FILE ${PROTOCOL_FILE} ABSOLUTE)
+
+  # get relative path without the "protocols" part
+  file(RELATIVE_PATH REL_FROM_PROTOCOLS "${CMAKE_CURRENT_SOURCE_DIR}/protocols"
+       "${ABSOLUTE_PROTOCOL_FILE}")
+
+  # get any directories in between "protocols" and the file
+  get_filename_component(INSTALL_SUBDIR ${REL_FROM_PROTOCOLS} DIRECTORY)
+
   install(
     FILES ${PROTOCOL_FILE}
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/hyprwire-protocols/${PROTOCOL_DIR}")
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/hyprwire-protocols/${INSTALL_SUBDIR}")
 endforeach()
 
 # Configure pkg-config file
