@@ -123,31 +123,13 @@
       bus.
     </description>
 
-    <s2c name="socket_dir">
-      <description summary="Directory for the hyprwire socket">
-        This event is sent immediately after creation of an object. The bus will
-        provide a path that the client must create their hyprwire socket in.
+    <s2c name="new_fd">
+      <description summary="New connection requested">
+        Another client on the bus requested to connect to this object.
+        The connection must be estabilished on the given incoming FD in SERVER mode.
       </description>
-      <arg name="path" type="varchar" summary="directory path"/>
+      <arg name="wire_fd" type="fd" summary="hyprwire file descriptor"/>
     </s2c>
-
-    <c2s name="socket_path">
-      <description summary="Path to the hyprwire socket">
-        Once the client receives the socket_dir event, it must create a hyprwire server
-        socket for incoming connections. Once that is done, the path to it must be
-        sent via this request.
-
-        The path must be inside socket_dir, but can be in a subdirectory, e.g.:
-        socket_dir = /run/user/1000/hyprtavern/11/
-        socket_path = /run/user/1000/hyprtavern/11/my_app/socket.sock
-
-        It is recommended to avoid any unnecessary subdirectories. socket_dir
-        is per-connection.
-
-        Once this request is sent, the object becomes valid and exposed on the bus.
-      </description>
-      <arg name="path" type="varchar" summary="directory path"/>
-    </c2s>
 
     <c2s name="expose_protocol">
       <description summary="Expose a supported protocol">
@@ -264,17 +246,30 @@
     </s2c>
 
     <s2c name="socket">
-      <description summary="Socket file">
-        This event carries the full path to the hyprwire socket file of this object.
+      <description summary="Socket fd">
+        This event carries the file descriptor to connect to the socket. It will be emitted
+        after .connect is requested.
+
+        You must connect to the given fd with hyprwire in CLIENT mode.
+
+        After this event is emitted, this object becomes inert. It should be deleted.
       </description>
 
-      <arg name="path" type="varchar" summary="socket file path"/>
+      <arg name="file_descriptor" type="fd" summary="hyprwire fd"/>
     </s2c>
+
+    <c2s name="connect">
+      <description summary="Connect to the object">
+        Request connection to the object.
+      </description>
+    </c2s>
 
     <s2c name="done">
       <description summary="Finished sending events">
         All data about this handle has been sent. No further data will be sent,
         this object should be destroyed.
+
+        You can still connect to the socket.
       </description>
     </s2c>
 
