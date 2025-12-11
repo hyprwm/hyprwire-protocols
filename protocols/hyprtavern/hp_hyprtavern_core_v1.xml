@@ -102,14 +102,14 @@
       <returns iface="hp_hyprtavern_bus_object_handle_v1"/>
     </c2s>
 
-    <s2c name="destroy" destructor="true">
+    <c2s name="destroy" destructor="true">
       <description summary="Destroy the manager">
         This request destroys the manager. All objects remain valid until they are destroyed.
 
         Existing socket connections are not closed. Socket directory obtained with socket_dir
         is removed once all objects are destroyed.
       </description>
-    </s2c>
+    </c2s>
   </object>
 
   <enum name="bus_object_errors">
