@@ -173,14 +173,14 @@
       <arg name="property_value" type="varchar" summary="string value of the property"/>
     </c2s>
 
-    <s2c name="destroy" destructor="true">
+    <c2s name="destroy" destructor="true">
       <description summary="Destroy an object">
         This request destroys the object and removes it from discovery.
 
         Existing socket connections are not closed. Socket directory obtained with socket_dir
         is not removed until the manager is destroyed.
       </description>
-    </s2c>
+    </c2s>
   </object>
 
   <object name="hp_hyprtavern_bus_query_v1" version="1">
@@ -200,11 +200,11 @@
       <arg name="matches" type="array uint" summary="matched IDs"/>
     </s2c>
 
-    <s2c name="destroy" destructor="true">
+    <c2s name="destroy" destructor="true">
       <description summary="Destroy a query object">
         This request destroys the query object.
       </description>
-    </s2c>
+    </c2s>
   </object>
 
   <object name="hp_hyprtavern_bus_object_handle_v1" version="1">
@@ -273,10 +273,10 @@
       </description>
     </s2c>
 
-    <s2c name="destroy" destructor="true">
+    <c2s name="destroy" destructor="true">
       <description summary="Destroy a query object">
         This request destroys the object handle.
       </description>
-    </s2c>
+    </c2s>
   </object>
 </protocol>
