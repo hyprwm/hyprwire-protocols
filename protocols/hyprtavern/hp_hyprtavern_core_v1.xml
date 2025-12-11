@@ -90,7 +90,7 @@
       <arg name="protocol_names_filter" type="enum" interface="bus_query_filter_mode" summary="Filter mode for the array of protocol names"/>
       <arg name="property_list" type="array varchar" summary="An array of properties"/>
       <arg name="property_list_filter" type="enum" interface="bus_query_filter_mode" summary="Filter mode for the array of properties"/>
-      <returns iface="hp_hyprtavern_query_object_v1"/>
+      <returns iface="hp_hyprtavern_bus_query_v1"/>
     </c2s>
 
     <c2s name="get_object_handle">
@@ -222,6 +222,14 @@
       </description>
     </s2c>
 
+    <s2c name="name">
+      <description summary="Object name">
+        This is a human-readable name of the object. It is not unique.
+      </description>
+
+      <arg name="name" type="varchar" summary="object name"/>
+    </s2c>
+
     <s2c name="protocols">
       <description summary="Protocols">
         This event contains the exposed protocols of the object. Two arrays describe names and
@@ -245,6 +253,12 @@
       <arg name="properties" type="array varchar" summary="properties exposed"/>
     </s2c>
 
+    <c2s name="connect">
+      <description summary="Connect to the object">
+        Request connection to the object.
+      </description>
+    </c2s>
+
     <s2c name="socket">
       <description summary="Socket fd">
         This event carries the file descriptor to connect to the socket. It will be emitted
@@ -258,11 +272,12 @@
       <arg name="file_descriptor" type="fd" summary="hyprwire fd"/>
     </s2c>
 
-    <c2s name="connect">
-      <description summary="Connect to the object">
-        Request connection to the object.
+    <s2c name="socket_failed">
+      <description summary="Socket connection failed">
+        Emitted if the connection to the object failed. Possible causes include
+        the object being already gone.
       </description>
-    </c2s>
+    </s2c>
 
     <s2c name="done">
       <description summary="Finished sending events">
