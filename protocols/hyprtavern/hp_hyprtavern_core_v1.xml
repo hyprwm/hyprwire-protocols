@@ -3,7 +3,7 @@
   <copyright>
     BSD 3-Clause License
 
-    Copyright (c) 2025, Hypr Development
+    Copyright (c) 2025, Hyprland Development
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
@@ -51,16 +51,35 @@
       This object is a core manager object bound upon creation.
     </description>
 
-    <!-- TODO: <c2s name="link_security">
-      <description summary="Link with the security protocol">
-        This request links this manager to a given security context object from hp_hyprtavern_security_v1.
+    <c2s name="get_security_object">
+      <description summary="Create a security object">
+        Create a security object. This can be used to obtain permissions.
 
-        The argument is the UUID token obtained from hp_hyprtavern_security_v1.
+        If the token is left empty, or is not found, an empty security_object will be
+        created.
 
-        If security is not linked, this manager has by default no privilege groups.
+        A manager can only create a single security object. Security objects are bound
+        to the binary path of the calling process' PID. If that is not able to be obtained,
+        they are bound to an empty path.
+
+        Security objects rely on an implemented and running session kv_store for persistence,
+        and will not work without a security_agent connected.
+
+        By default, non-sandboxed apps skip all permissions. This can be changed in the tavern's
+        settings, and apps must never assume they have any permissions. They must request
+        permissions and obtain them.
       </description>
-      <arg name="token" type="varchar" summary="Token obtained from hp_hyprtavern_security_v1"/>
-    </c2s> -->
+      <arg name="token" type="varchar" summary="Security object's token"/>
+      <returns iface="hp_hyprtavern_security_object_v1"/>
+    </c2s>
+
+    <c2s name="get_security_response">
+      <description summary="Create a security response">
+        Create a security response. This can be used to see a connecting client's permissions.
+      </description>
+      <arg name="token" type="varchar" summary="One-time token"/>
+      <returns iface="hp_hyprtavern_security_response_v1"/>
+    </c2s>
 
     <c2s name="get_bus_object">
       <description summary="Create a bus object">
@@ -117,6 +136,10 @@
     <value idx="1" name="invalid_property_name" description="chosen property name is illegal"/>
   </enum>
 
+  <enum name="bus_object_expose_errors">
+    <value idx="0" name="already_exposed" description="protocol is exclusive, but already exposed"/>
+  </enum>
+
   <object name="hp_hyprtavern_bus_object_v1" version="1">
     <description summary="A bus object">
       This object is a bus object representing an open, exposed object on the
@@ -127,8 +150,20 @@
       <description summary="New connection requested">
         Another client on the bus requested to connect to this object.
         The connection must be estabilished on the given incoming FD in SERVER mode.
+
+        security_token is a one-time token that can be used to obtain a security_token_response
+        which will give information about the connecting process' permissions. It will be empty
+        if the connecting process has no security_object attached.
       </description>
       <arg name="wire_fd" type="fd" summary="hyprwire file descriptor"/>
+      <arg name="security_token" type="varchar" summary="one-time security token"/>
+    </s2c>
+
+    <s2c name="expose_protocol_error">
+      <description summary="Failed to expose a protocol">
+        Failed to expose a protocol.
+      </description>
+      <arg name="reason" type="enum" interface="bus_object_expose_errors" summary="reason"/>
     </s2c>
 
     <c2s name="expose_protocol">
@@ -140,13 +175,16 @@
         prevent an unexposed protocol from being bound. An app can still get all supported
         protocols in the handshake upon connection.
 
-        If one wants to restrict protocol access, filtering must be done manually.
+        Protocol verification must be done by the client when binding. You can use the
+        one-time token passed in new_fd to check a new client's permissions.
 
-        For security popups, control, and access, check the hp_hyprtavern_security_v1
-        protocol.
+        If exclusive_mode is set non-zero, this protocol will only be exposed if it's not already
+        on the bus elsewhere. If it is, expose_protocol_error is sent and this request is ignored.
       </description>
       <arg name="protocol_name" type="varchar" summary="protocol name"/>
       <arg name="version" type="uint" summary="protocol max revision version"/>
+      <arg name="required_permissions" type="array uint" summary="an array of required permissions to see this protocol, see security_permission_type"/>
+      <arg name="exclusive_mode" type="uint" summary="exclusivity mode"/>
     </c2s>
 
     <c2s name="expose_property">
@@ -171,6 +209,16 @@
       </description>
       <arg name="property_name" type="varchar" summary="name of the property"/>
       <arg name="property_value" type="varchar" summary="string value of the property"/>
+    </c2s>
+
+    <c2s name="require_permissions">
+      <description summary="Hide this object behind permissions">
+        Hide this object unless the caller has all the permissions needed.
+
+        For fine-grained control, use protocol_required_permissions in expose_protocol.
+      </description>
+
+      <arg name="required_permissions" type="array uint" summary="an array of required permissions to see this object, see security_permission_type"/>
     </c2s>
 
     <c2s name="destroy" destructor="true">
@@ -291,6 +339,155 @@
     <c2s name="destroy" destructor="true">
       <description summary="Destroy a query object">
         This request destroys the object handle.
+      </description>
+    </c2s>
+  </object>
+
+  <enum name="security_permission_type">
+    <value idx="0" name="unobtainium" description="Unobtainable permission types"/>
+      <value idx="1" name="tavernkeep" description="This client is the tavern itself"/>
+
+    <value idx="10000" name="settings" description="All system settings"/>
+      <value idx="11000" name="settings_basic" description="Basic system settings"/>
+        <value idx="11001" name="settings_wallpaper" description="Manage the wallpaper(s)"/>
+
+      <value idx="12000" name="settings_sensitive" description="Sensitive system settings"/>
+        <value idx="12001" name="settings_manage_secrets" description="Manage encrypted secrets"/>
+        <value idx="12002" name="settings_manage_permissions" description="Manage app permissions"/>
+
+    <value idx="20000" name="monitoring" description="Monitoring system status"/>
+      <value idx="21000" name="monitoring_basic" description="Monitoring basic operations"/>
+        <value idx="21001" name="monitoring_all_bus_objects" description="The ability to see all bus objects regardless of permissions"/>
+  </enum>
+
+  <enum name="security_permission_mode">
+    <value idx="0" name="session" description="For the duration of the session"/>
+    <value idx="1" name="permanent" description="Forever, until denied"/>
+  </enum>
+
+  <enum name="security_permission_result">
+    <value idx="0" name="granted" description="Explicitly granted"/>
+    <value idx="1" name="already_granted" description="Already was granted"/>
+    <value idx="2" name="granted_by_policy" description="Granted because of a policy"/>
+    <value idx="3" name="denied" description="Explicitly denied"/>
+    <value idx="4" name="failed" description="Error occurred"/>
+  </enum>
+
+  <object name="hp_hyprtavern_security_object_v1" version="1">
+    <description summary="A security object">
+      This object is a security object allowing to obtain permissions on the bus.
+    </description>
+
+    <s2c name="token">
+      <description summary="This object's token">
+        This event is emitted immediately upon creation of this object.
+        If the token requested during creation was found, this will match it.
+        Otherwise, this will be a new token. This should be used next time you wish to obtain
+        permissions, otherwise your persistent permissions will be lost.
+
+        It is recommended to use the kv_store for storing tokens.
+      </description>
+
+      <arg name="token" type="varchar" summary="The token"/>
+    </s2c>
+
+    <c2s name="set_identity">
+      <description summary="Set this object's identity">
+        This is an optional, but highly recommended request to estabilish this object's identity.
+        This includes information for the user to identify this app.
+
+        All arguments here are meant to be human-readable strings.
+
+        This data is saved under the token, so it will persist throughout sessions.
+      </description>
+
+      <arg name="app_name" type="varchar" summary="App's name"/>
+      <arg name="app_description" type="varchar" summary="App's description"/>
+    </c2s>
+
+    <c2s name="obtain_permission">
+      <description summary="Ask for a permission">
+        This request asks the bus to grant a given permission to this object.
+
+        This may pop up an interactive box to the user.
+
+        This request can succeed, or fail. If the permission is already granted,
+        it's treated as a success.
+
+        Permissions are grouped atomics, akin to Android. Requesting a group
+        will allow all permissions within.
+
+        permission_result will be emitted some time after this request to indicate
+        a success or failure. A client must not assume it has a permission before
+        permission_result is received.
+      </description>
+
+      <arg name="permission_type" type="enum" interface="security_permission_type" summary="Permission type"/>
+      <arg name="ask_mode" type="enum" interface="security_permission_mode" summary="In what way to ask for the permission"/>
+    </c2s>
+
+    <s2c name="permission_result">
+      <description summary="Result of a permission request">
+        This event carries information about the permission request's status
+      </description>
+
+      <arg name="permission_type" type="enum" interface="security_permission_type" summary="Permission type asked"/>
+      <arg name="permission_result" type="enum" interface="security_permission_result" summary="Result"/>
+    </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy a security object">
+        This request destroys this object.
+      </description>
+    </c2s>
+  </object>
+
+  <object name="hp_hyprtavern_security_response_v1" version="1">
+    <description summary="A security response">
+      This object gives detailed informations about the properties and permissions
+      of a given connecting client.
+    </description>
+
+    <s2c name="identity">
+      <description summary="This client's identity">
+        Emits known data of the client's identity
+      </description>
+
+      <arg name="pid" type="uint" summary="Client's process id"/>
+      <arg name="name" type="varchar" summary="App's name"/>
+      <arg name="description" type="varchar" summary="App's description"/>
+    </s2c>
+
+    <s2c name="permissions">
+      <description summary="This client's permissions">
+        Emits permissions this client has.
+      </description>
+
+      <arg name="permissions" type="array uint" summary="Client's permissions"/>
+    </s2c>
+
+    <s2c name="done">
+      <description summary="All data sent">
+        All data has been sent.
+      </description>
+    </s2c>
+
+    <s2c name="failed">
+      <description summary="Failed to get the response">
+        Failed to get the response. The token is invalid. This object is now inert
+        and should be destroyed.
+      </description>
+    </s2c>
+
+    <c2s name="requery">
+      <description summary="Ask to re-query the permissions">
+        Permissions can change over time. This request will re-send the data on this object.
+      </description>
+    </c2s>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy this object">
+        Destroys this object.
       </description>
     </c2s>
   </object>

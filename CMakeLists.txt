@@ -11,7 +11,7 @@ project(
 
 include(GNUInstallDirs)
 
-set(PROTOCOL_FILES protocols/hyprtavern/hp_hyprtavern_core_v1.xml)
+set(PROTOCOL_FILES protocols/hyprtavern/hp_hyprtavern_core_v1.xml protocols/hyprtavern/hp_hyprtavern_kv_store_v1.xml protocols/hyprtavern/hp_hyprtavern_permission_authentication_v1.xml)
 
 foreach(PROTOCOL_FILE ${PROTOCOL_FILES})
   get_filename_component(ABSOLUTE_PROTOCOL_FILE ${PROTOCOL_FILE} ABSOLUTE)
