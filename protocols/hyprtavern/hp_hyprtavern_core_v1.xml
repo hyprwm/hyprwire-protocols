@@ -382,8 +382,11 @@
       <description summary="This object's token">
         This event is emitted immediately upon creation of this object.
         If the token requested during creation was found, this will match it.
-        Otherwise, this will be a new token. This should be used next time you wish to obtain
+        Otherwise, this will be a new token. This must be used next time you wish to obtain
         permissions, otherwise your persistent permissions will be lost.
+
+        If the previous token had no persistent permissions, this will be recycled into a new
+        token.
 
         It is recommended to use the kv_store for storing tokens.
       </description>
