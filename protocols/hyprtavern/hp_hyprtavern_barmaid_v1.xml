@@ -50,5 +50,13 @@
         This barmaid is ready to serve beer.
       </description>
     </s2c>
+
+    <c2s name="update_tavern_environment">
+      <description summary="Update the tavern's environment">
+        Forwarded event from the core protocol with the same name and functionality.
+      </description>
+      <arg name="env_names" type="array varchar" summary="An array of environment variable names"/>
+      <arg name="env_values" type="array varchar" summary="An array of environment variable values"/>
+    </c2s>
   </object>
 </protocol>

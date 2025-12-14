@@ -121,6 +121,21 @@
       <returns iface="hp_hyprtavern_bus_object_handle_v1"/>
     </c2s>
 
+    <c2s name="update_tavern_environment">
+      <description summary="Update the tavern's environment">
+        Send new environment for the tavern to treat as primary. This will be sent to barmaids as well.
+        Environment like `WAYLAND_DISPLAY` will dictate where barmaids show their GUI elements.
+
+        Two arrays dictate names and values respectively, e.g. { "WAYLAND_DISPLAY", "DISPLAY" }, { "wayland-1", ":1" }
+
+        An empty value unsets an environment variable.
+
+        This request requires the management_environment permission.
+      </description>
+      <arg name="env_names" type="array varchar" summary="An array of environment variable names"/>
+      <arg name="env_values" type="array varchar" summary="An array of environment variable values"/>
+    </c2s>
+
     <c2s name="destroy" destructor="true">
       <description summary="Destroy the manager">
         This request destroys the manager. All objects remain valid until they are destroyed.
@@ -358,6 +373,10 @@
     <value idx="20000" name="monitoring" description="Monitoring system status"/>
       <value idx="21000" name="monitoring_basic" description="Monitoring basic operations"/>
         <value idx="21001" name="monitoring_all_bus_objects" description="The ability to see all bus objects regardless of permissions"/>
+
+    <value idx="30000" name="management" description="Managing the tavern"/>
+      <value idx="30001" name="management_environment" description="Managing the tavern's environment"/>
+
   </enum>
 
   <enum name="security_permission_mode">
@@ -377,6 +396,16 @@
     <description summary="A security object">
       This object is a security object allowing to obtain permissions on the bus.
     </description>
+
+    <s2c name="unavailable">
+      <description summary="Security unavailable">
+        This event is emitted if the tavern cannot create a security object yet.
+
+        This is usually due to the kv store being locked.
+
+        This object is inert. You should destroy it.
+      </description>
+    </s2c>
 
     <s2c name="token">
       <description summary="This object's token">

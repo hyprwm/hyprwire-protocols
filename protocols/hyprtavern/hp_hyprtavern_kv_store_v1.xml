@@ -42,6 +42,7 @@
 
   <enum name="protocol_errors">
     <value idx="0" name="invalid_key_name" description="Invalid key name"/>
+    <value idx="1" name="store_unavailable" description="Kv store is unavailable"/>
   </enum>
 
   <enum name="value_type">
@@ -72,8 +73,8 @@
 
         It is recommended to prefer app values unless an unbounded one is necessary.
 
-        The key has to contain only letters, numbers, or any of the characters: `/.,-+=?`,
-        otherwise an invalid_key_name error is raised.
+        The key has to contain only letters, numbers, or any of the characters: `:/.,-+=?`,
+        otherwise an invalid_key_name error is raised. Value can contain any characters.
       </description>
 
       <arg name="key" type="varchar" summary="key"/>
@@ -89,6 +90,21 @@
       <arg name="key" type="varchar" summary="key"/>
       <arg name="type" type="enum" interface="value_type" summary="type"/>
     </c2s>
+
+    <s2c name="store_available">
+      <description summary="Kv store is available">
+        The Kv store is by default locked. Sending any request before receiving a
+        store_available event will result in a store_unavailable protocol error.
+
+        The user will be prompted to unlock the Kv store as soon as it's possible.
+
+        If the store is already unlocked, this event is sent immediately upon binding
+        the protocol.
+
+        It is safe to assume that if the protocol is bound, and after a roundtrip this
+        event is not emitted, the store is closed.
+      </description>
+    </s2c>
 
     <s2c name="value_obtained">
       <description summary="Value obtained">
