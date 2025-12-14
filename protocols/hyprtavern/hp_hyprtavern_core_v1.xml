@@ -130,7 +130,12 @@
 
         An empty value unsets an environment variable.
 
-        This request requires the management_environment permission.
+        This request requires the management_environment permission for variables that are other than:
+        "WAYLAND_DISPLAY", "DISPLAY".
+
+        These variables can be set by any client due to potential cat-and-mouse scenarios where in order
+        to get a permission, kv needs to be accessible, but because kv is locked, kv needs a display env
+        to show the kv prompt on.
       </description>
       <arg name="env_names" type="array varchar" summary="An array of environment variable names"/>
       <arg name="env_values" type="array varchar" summary="An array of environment variable values"/>
