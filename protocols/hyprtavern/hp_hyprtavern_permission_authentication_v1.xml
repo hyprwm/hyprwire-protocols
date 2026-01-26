@@ -49,12 +49,25 @@
     <value idx="0" name="accepted_once" description="Accepted once"/>
     <value idx="1" name="accepted_persistent" description="Accepted with a persistent option"/>
     <value idx="2" name="denied" description="Denied"/>
+    <value idx="3" name="unavailable" description="Could not prompt the user"/>
   </enum>
 
   <object name="hp_hyprtavern_permission_authentication_manager_v1" version="1">
     <description summary="Permission auth manager object">
       This object is a core manager object bound upon creation.
     </description>
+
+    <s2c name="availability">
+      <description summary="Availability of the permission authentication manager">
+        This event is emitted on bind, and every time this changes.
+
+        The event describes whether asking for permissions is available. Certain things
+        (e.g. DISPLAY / WAYLAND_DISPLAY env) can enable / disable the prompts from
+        being shown.
+      </description>
+
+      <arg name="available" type="uint" summary="availability. 1 = yes, 0 = no."/>
+    </s2c>
 
     <c2s name="ask_permission">
       <description summary="Ask for a permission">
