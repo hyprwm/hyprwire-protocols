@@ -69,9 +69,41 @@
       <arg name="available" type="uint" summary="availability. 1 = yes, 0 = no."/>
     </s2c>
 
+    <c2s name="init_permission_transaction">
+      <description summary="Start a permission transaction">
+        Start a permission transaction.
+      </description>
+
+      <returns iface="hp_hyprtavern_permission_authentication_transaction_v1"/>
+    </c2s>
+  </object>
+
+  <object name="hp_hyprtavern_permission_authentication_transaction_v1" version="1">
+    <description summary="Permission transaction object">
+      This object represents a permission transaction.
+    </description>
+
+    <c2s name="set_app_name">
+      <description summary="Set an app name for this transaction">
+        Set an app name for this transaction. This should be a human-readable name.
+      </description>
+
+      <arg name="name" type="varchar" summary="name"/>
+    </c2s>
+
+    <c2s name="set_app_identifier">
+      <description summary="Set an app identifier for this transaction">
+        Set an app identifier. This can be a path, a flatpak ID, etc.
+
+        It's not meant to be human-readable.
+      </description>
+
+      <arg name="name" type="varchar" summary="name"/>
+    </c2s>
+
     <c2s name="ask_permission">
       <description summary="Ask for a permission">
-        Ask the user for a permission.
+        Ask the user for a permission. This may be done only once.
       </description>
 
       <arg name="permission" type="uint" summary="permission"/>
@@ -81,10 +113,18 @@
     <s2c name="permission_result">
       <description summary="Permission dialog was interacted with">
         Response from the manager with the result.
+
+        This object may not be reused, you must not call anything that isn't destroy after this event.
       </description>
 
       <arg name="permission" type="uint" summary="permission"/>
       <arg name="result" type="enum" interface="response_type" summary="result"/>
     </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy the object">
+        This request destroys this object.
+      </description>
+    </c2s>
   </object>
 </protocol>
