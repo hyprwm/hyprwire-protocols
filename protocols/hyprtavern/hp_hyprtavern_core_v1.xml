@@ -51,6 +51,15 @@
       This object is a core manager object bound upon creation.
     </description>
 
+    <s2c name="ready">
+      <description summary="Tavern is ready">
+        This event is emitted once the tavern connection is ready to accept other requests.
+
+        Clients must wait on this event before doing anything else, otherwise a protocol
+        error is raised.
+      </description>
+    </s2c>
+
     <c2s name="get_security_object">
       <description summary="Create a security object">
         Create a security object. This can be used to obtain permissions.
@@ -174,9 +183,14 @@
         security_token is a one-time token that can be used to obtain a security_token_response
         which will give information about the connecting process' permissions. It will be empty
         if the connecting process has no security_object attached.
+
+        protocol_scope describes which protocols may be used over this fd. The object's provider
+        must put a filter on this fd's connection to block protocols outside the scope from being bound,
+        in order to block the protocols from being advertised in the handshake.
       </description>
       <arg name="wire_fd" type="fd" summary="hyprwire file descriptor"/>
       <arg name="security_token" type="varchar" summary="one-time security token"/>
+      <arg name="protocol_scope" type="array varchar" summary="protocols allowed over this fd"/>
     </s2c>
 
     <s2c name="expose_protocol_error">
@@ -191,9 +205,12 @@
         Explicitly exposes a supported protocol alongside the revision version
         on the object.
 
-        This allows other apps to discover a given protocol via the bus, but does not
-        prevent an unexposed protocol from being bound. An app can still get all supported
-        protocols in the handshake upon connection.
+        This allows other apps to discover and request access to a protocol via the bus.
+
+        A protocol will only be available on a connection if it was requested through
+        hp_hyprtavern_bus_object_handle_v1.connect and granted by the tavern. The object
+        provider must apply the protocol_scope from new_fd as an allowlist before
+        dispatching the fd. See new_fd.
 
         Protocol verification must be done by the client when binding. You can use the
         one-time token passed in new_fd to check a new client's permissions.
@@ -203,7 +220,7 @@
       </description>
       <arg name="protocol_name" type="varchar" summary="protocol name"/>
       <arg name="version" type="uint" summary="protocol max revision version"/>
-      <arg name="required_permissions" type="array uint" summary="an array of required permissions to see this protocol, see security_permission_type"/>
+      <arg name="required_permissions" type="array uint" summary="an array of required permissions to bind this protocol, see security_permission_type"/>
       <arg name="exclusive_mode" type="uint" summary="exclusivity mode"/>
     </c2s>
 
@@ -275,6 +292,12 @@
     </c2s>
   </object>
 
+  <enum name="bus_object_connection_error">
+    <value idx="0" name="unknown_error" description="An unknown error occurred"/>
+    <value idx="1" name="bad_protocol" description="A requested protocol was invalid / missing"/>
+    <value idx="2" name="insufficient_permissions" description="A requested protocol's permissions were not obtained"/>
+  </enum>
+
   <object name="hp_hyprtavern_bus_object_handle_v1" version="1">
     <description summary="A bus object handle">
       This object is a handle to an existing bus object. It will return detailed
@@ -323,8 +346,17 @@
 
     <c2s name="connect">
       <description summary="Connect to the object">
-        Request connection to the object.
+        Request connection to the object, on specified protocols.
+
+        All protocols the client wishes to use must be asked for, otherwise
+        they will be unavailable on this socket.
+
+        If any of the protocols are unavailable, inaccessible or otherwise
+        unreachable, socket_failed will be emitted.
+
+        An empty protocol_names is invalid.
       </description>
+      <arg name="protocol_names" type="array varchar" summary="protocols requested"/>
     </c2s>
 
     <s2c name="socket">
@@ -334,7 +366,7 @@
 
         You must connect to the given fd with hyprwire in CLIENT mode.
 
-        After this event is emitted, this object becomes inert. It should be deleted.
+        After this event is emitted, this object becomes inert. It should be destroyed.
       </description>
 
       <arg name="file_descriptor" type="fd" summary="hyprwire fd"/>
@@ -343,8 +375,11 @@
     <s2c name="socket_failed">
       <description summary="Socket connection failed">
         Emitted if the connection to the object failed. Possible causes include
-        the object being already gone.
+        the object being already gone, insufficient permissions, or bad requested protocols.
+
+        After this event is emitted, this object becomes inert. It should be destroyed.
       </description>
+      <arg name="error" type="enum" interface="bus_object_connection_error" summary="The error that caused the connection to fail"/>
     </s2c>
 
     <s2c name="done">
@@ -352,7 +387,7 @@
         All data about this handle has been sent. No further data will be sent,
         this object should be destroyed.
 
-        You can still connect to the socket.
+        You can still request a connection with connect.
       </description>
     </s2c>
 
