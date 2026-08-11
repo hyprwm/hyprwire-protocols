@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="hp_hyprtavern_kv_store_v1" version="1">
+  <copyright>
+    BSD 3-Clause License
+
+    Copyright (c) 2025, Hyprland Development
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice, this
+        list of conditions and the following disclaimer.
+
+    2. Redistributions in binary form must reproduce the above copyright notice,
+        this list of conditions and the following disclaimer in the documentation
+        and/or other materials provided with the distribution.
+
+    3. Neither the name of the copyright holder nor the names of its
+        contributors may be used to endorse or promote products derived from
+        this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  </copyright>
+
+  <description>
+    The kv_store protocol is implemented for a key-value store for applications.
+
+    It can be expected that the kv store implements proper security measures to protect
+    the values inside. This store is suitable to hold secrets.
+
+    kv_store is an exclusive protocol. It must be exposed with the exclusivity flag.
+  </description>
+
+  <enum name="protocol_errors">
+    <value idx="0" name="invalid_key_name" description="Invalid key name"/>
+    <value idx="1" name="store_unavailable" description="Kv store is unavailable"/>
+  </enum>
+
+  <enum name="value_type">
+    <value idx="0" name="app_value" description="App value"/>
+    <value idx="1" name="unbounded_value" description="Unbounded value"/>
+    <value idx="2" name="tavern_value" description="Restricted type for the tavernkeep"/>
+  </enum>
+
+  <enum name="value_obtaining_error">
+    <value idx="0" name="value_missing" description="Value is missing"/>
+    <value idx="1" name="unknown_error" description="Unknown error"/>
+  </enum>
+
+  <object name="hp_hyprtavern_kv_store_manager_v1" version="1">
+    <description summary="Kv store manager object">
+      This object is a core manager object bound upon creation.
+    </description>
+
+    <c2s name="set_value">
+      <description summary="Set a value">
+        Set a value in the kv store.
+
+        An app value is a value restricted to the calling process' app. "app"
+        refers to the binary path. This does work with sandboxed apps.
+
+        An unbounded value is a value in a global value pool. It is highly recommended
+        to use unique prefixes e.g. myapp:value to avoid trampling other values.
+
+        It is recommended to prefer app values unless an unbounded one is necessary.
+
+        The key has to contain only letters, numbers, or any of the characters: `:/.,-+=?`,
+        otherwise an invalid_key_name error is raised. Value can contain any characters.
+      </description>
+
+      <arg name="key" type="varchar" summary="key"/>
+      <arg name="value" type="varchar" summary="value"/>
+      <arg name="type" type="enum" interface="value_type" summary="type"/>
+    </c2s>
+
+    <c2s name="get_value">
+      <description summary="Get a value">
+        Get a value from the kv store.
+      </description>
+
+      <arg name="key" type="varchar" summary="key"/>
+      <arg name="type" type="enum" interface="value_type" summary="type"/>
+    </c2s>
+
+    <s2c name="store_available">
+      <description summary="Kv store is available">
+        The Kv store is by default locked. Sending any request before receiving a
+        store_available event will result in a store_unavailable protocol error.
+
+        The user will be prompted to unlock the Kv store as soon as it's possible.
+
+        If the store is already unlocked, this event is sent immediately upon binding
+        the protocol.
+
+        It is safe to assume that if the protocol is bound, and after a roundtrip this
+        event is not emitted, the store is closed.
+      </description>
+    </s2c>
+
+    <s2c name="value_obtained">
+      <description summary="Value obtained">
+        Response from the kv_store with the value.
+      </description>
+
+      <arg name="key" type="varchar" summary="key"/>
+      <arg name="value" type="varchar" summary="value"/>
+      <arg name="type" type="enum" interface="value_type" summary="type"/>
+    </s2c>
+
+    <s2c name="value_failed">
+      <description summary="Value failed">
+        Response from the kv_store with an error in obtaining the value.
+      </description>
+
+      <arg name="key" type="varchar" summary="key"/>
+      <arg name="type" type="enum" interface="value_type" summary="type"/>
+      <arg name="reason" type="enum" interface="value_obtaining_error" summary="reason"/>
+    </s2c>
+  </object>
+</protocol>

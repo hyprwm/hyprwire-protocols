@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="hp_hyprtavern_permission_authentication_v1" version="1">
+  <copyright>
+    BSD 3-Clause License
+
+    Copyright (c) 2025, Hyprland Development
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice, this
+        list of conditions and the following disclaimer.
+
+    2. Redistributions in binary form must reproduce the above copyright notice,
+        this list of conditions and the following disclaimer in the documentation
+        and/or other materials provided with the distribution.
+
+    3. Neither the name of the copyright holder nor the names of its
+        contributors may be used to endorse or promote products derived from
+        this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  </copyright>
+
+  <description>
+    The permission_authentication protocol allows to request user-interactable
+    permission popups.
+
+    This protocol must be guarded behind the "tavernkeep" permission.
+
+    permission_authentication is an exclusive protocol. It must be exposed with the exclusivity flag.
+  </description>
+
+  <enum name="ask_type">
+    <value idx="0" name="session" description="Session"/>
+    <value idx="1" name="persist" description="Persistent"/>
+  </enum>
+
+  <enum name="response_type">
+    <value idx="0" name="accepted_once" description="Accepted once"/>
+    <value idx="1" name="accepted_persistent" description="Accepted with a persistent option"/>
+    <value idx="2" name="denied" description="Denied"/>
+    <value idx="3" name="unavailable" description="Could not prompt the user"/>
+  </enum>
+
+  <object name="hp_hyprtavern_permission_authentication_manager_v1" version="1">
+    <description summary="Permission auth manager object">
+      This object is a core manager object bound upon creation.
+    </description>
+
+    <s2c name="availability">
+      <description summary="Availability of the permission authentication manager">
+        This event is emitted on bind, and every time this changes.
+
+        The event describes whether asking for permissions is available. Certain things
+        (e.g. DISPLAY / WAYLAND_DISPLAY env) can enable / disable the prompts from
+        being shown.
+      </description>
+
+      <arg name="available" type="uint" summary="availability. 1 = yes, 0 = no."/>
+    </s2c>
+
+    <c2s name="init_permission_transaction">
+      <description summary="Start a permission transaction">
+        Start a permission transaction.
+      </description>
+
+      <returns iface="hp_hyprtavern_permission_authentication_transaction_v1"/>
+    </c2s>
+  </object>
+
+  <object name="hp_hyprtavern_permission_authentication_transaction_v1" version="1">
+    <description summary="Permission transaction object">
+      This object represents a permission transaction.
+    </description>
+
+    <c2s name="set_app_name">
+      <description summary="Set an app name for this transaction">
+        Set an app name for this transaction. This should be a human-readable name.
+      </description>
+
+      <arg name="name" type="varchar" summary="name"/>
+    </c2s>
+
+    <c2s name="set_app_identifier">
+      <description summary="Set an app identifier for this transaction">
+        Set an app identifier. This can be a path, a flatpak ID, etc.
+
+        It's not meant to be human-readable.
+      </description>
+
+      <arg name="name" type="varchar" summary="name"/>
+    </c2s>
+
+    <c2s name="ask_permission">
+      <description summary="Ask for a permission">
+        Ask the user for a permission. This may be done only once.
+      </description>
+
+      <arg name="permission" type="uint" summary="permission"/>
+      <arg name="type" type="enum" interface="ask_type" summary="type"/>
+    </c2s>
+
+    <s2c name="permission_result">
+      <description summary="Permission dialog was interacted with">
+        Response from the manager with the result.
+
+        This object may not be reused, you must not call anything that isn't destroy after this event.
+      </description>
+
+      <arg name="permission" type="uint" summary="permission"/>
+      <arg name="result" type="enum" interface="response_type" summary="result"/>
+    </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy the object">
+        This request destroys this object.
+      </description>
+    </c2s>
+  </object>
+</protocol>

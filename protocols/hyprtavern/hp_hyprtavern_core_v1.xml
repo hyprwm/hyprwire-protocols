@@ -1,0 +1,569 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="hp_hyprtavern_core_v1" version="1">
+  <copyright>
+    BSD 3-Clause License
+
+    Copyright (c) 2025, Hyprland Development
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice, this
+        list of conditions and the following disclaimer.
+
+    2. Redistributions in binary form must reproduce the above copyright notice,
+        this list of conditions and the following disclaimer in the documentation
+        and/or other materials provided with the distribution.
+
+    3. Neither the name of the copyright holder nor the names of its
+        contributors may be used to endorse or promote products derived from
+        this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  </copyright>
+
+  <description>
+    The hyprtavern core protocol describes how applications can connect to a
+    hyprtavern bus, expose themselves, and discover other applications running
+    on the same bus.
+  </description>
+
+  <enum name="bus_query_filter_mode">
+    <value idx="0" name="all" description="all names must be present"/>
+    <value idx="1" name="any" description="any single name must be present"/>
+  </enum>
+
+  <enum name="bus_manager_errors">
+    <value idx="0" name="invalid_property" description="property entry was invalid"/>
+  </enum>
+
+  <object name="hp_hyprtavern_core_manager_v1" version="1">
+    <description summary="Core manager object">
+      This object is a core manager object bound upon creation.
+    </description>
+
+    <s2c name="ready">
+      <description summary="Tavern is ready">
+        This event is emitted once the tavern connection is ready to accept other requests.
+
+        Clients must wait on this event before doing anything else, otherwise a protocol
+        error is raised.
+      </description>
+    </s2c>
+
+    <c2s name="get_security_object">
+      <description summary="Create a security object">
+        Create a security object. This can be used to obtain permissions.
+
+        If the token is left empty, or is not found, an empty security_object will be
+        created.
+
+        A manager can only create a single security object. Security objects are bound to
+        the core-attested identity of the original client connection. Flatpak clients use their
+        Flatpak application ID; verified host clients use their executable identity. Ambiguous
+        identities do not receive persistent grants.
+
+        Security objects rely on an implemented and running session kv_store for persistence,
+        and will not work without a security_agent connected.
+
+        By default, non-sandboxed apps skip all permissions. This can be changed in the tavern's
+        settings, and apps must never assume they have any permissions. They must request
+        permissions and obtain them.
+      </description>
+      <arg name="token" type="varchar" summary="Security object's token"/>
+      <returns iface="hp_hyprtavern_security_object_v1"/>
+    </c2s>
+
+    <c2s name="get_security_response">
+      <description summary="Create a security response">
+        Create a security response. This can be used to see a connecting client's permissions.
+      </description>
+      <arg name="token" type="varchar" summary="One-time token"/>
+      <returns iface="hp_hyprtavern_security_response_v1"/>
+    </c2s>
+
+    <c2s name="get_bus_object">
+      <description summary="Create a bus object">
+        Create a bus object on the bus. See hp_hyprtavern_bus_object_v1 for more.
+
+        You are allowed to expose multiple objects, but it is discouraged.
+
+        object_name does not have to be unique on the bus.
+      </description>
+      <arg name="object_name" type="varchar" summary="A human-readable, short name for the object"/>
+      <returns iface="hp_hyprtavern_bus_object_v1"/>
+    </c2s>
+
+    <c2s name="get_query_object">
+      <description summary="Create a query object">
+        Create a query object. A query object takes an array of protocol names as input. 
+
+        Optionally, you can include a list of properties to filter by. If you do not wish to add
+        any, leave the array empty.
+
+        Each string in the list of properties must come in the form of (name)=(value).
+        An invalid_property error is raised otherwise.
+
+        Leaving the protocol_names empty will return all objects on the bus.
+      </description>
+      <arg name="protocol_names" type="array varchar" summary="An array of protocol names to query by"/>
+      <arg name="protocol_names_filter" type="enum" interface="bus_query_filter_mode" summary="Filter mode for the array of protocol names"/>
+      <arg name="property_list" type="array varchar" summary="An array of properties"/>
+      <arg name="property_list_filter" type="enum" interface="bus_query_filter_mode" summary="Filter mode for the array of properties"/>
+      <returns iface="hp_hyprtavern_bus_query_v1"/>
+    </c2s>
+
+    <c2s name="get_object_handle">
+      <description summary="Create an object handle">
+        Create an object handle. Given an object ID, this object will return information about
+        the bus object.
+      </description>
+      <arg name="id" type="uint" summary="Bus object ID"/>
+      <returns iface="hp_hyprtavern_bus_object_handle_v1"/>
+    </c2s>
+
+    <c2s name="update_tavern_environment">
+      <description summary="Update the tavern's environment">
+        Send new environment for the tavern to treat as primary. This will be sent to barmaids as well.
+        Environment like `WAYLAND_DISPLAY` will dictate where barmaids show their GUI elements.
+
+        Two arrays dictate names and values respectively, e.g. { "WAYLAND_DISPLAY", "DISPLAY" }, { "wayland-1", ":1" }
+
+        An empty value unsets an environment variable.
+
+        This request requires the management_environment permission for variables that are other than:
+        "WAYLAND_DISPLAY", "DISPLAY".
+
+        These variables can be set by any client due to potential cat-and-mouse scenarios where in order
+        to get a permission, kv needs to be accessible, but because kv is locked, kv needs a display env
+        to show the kv prompt on.
+      </description>
+      <arg name="env_names" type="array varchar" summary="An array of environment variable names"/>
+      <arg name="env_values" type="array varchar" summary="An array of environment variable values"/>
+    </c2s>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy the manager">
+        This request destroys the manager. All objects remain valid until they are destroyed.
+
+        Existing socket connections are not closed. Socket directory obtained with socket_dir
+        is removed once all objects are destroyed.
+      </description>
+    </c2s>
+  </object>
+
+  <enum name="bus_object_errors">
+    <value idx="0" name="invalid_socket_path" description="socket path chosen is illegal"/>
+    <value idx="1" name="invalid_property_name" description="chosen property name is illegal"/>
+  </enum>
+
+  <enum name="bus_object_expose_errors">
+    <value idx="0" name="already_exposed" description="protocol is exclusive, but already exposed"/>
+  </enum>
+
+  <object name="hp_hyprtavern_bus_object_v1" version="1">
+    <description summary="A bus object">
+      This object is a bus object representing an open, exposed object on the
+      bus.
+    </description>
+
+    <s2c name="new_fd">
+      <description summary="New connection requested">
+        Another client on the bus requested to connect to this object.
+        The connection must be estabilished on the given incoming FD in SERVER mode.
+
+        security_token is a one-time token that can be used to obtain a security_token_response
+        which gives the core-attested identity and permissions of the connecting process. The token
+        is always present, is bound to this object provider, expires quickly, and may be used once.
+
+        protocol_scope describes which protocols may be used over this fd. The object's provider
+        must put a filter on this fd's connection to block protocols outside the scope from being bound,
+        in order to block the protocols from being advertised in the handshake.
+      </description>
+      <arg name="wire_fd" type="fd" summary="hyprwire file descriptor"/>
+      <arg name="security_token" type="varchar" summary="one-time security token"/>
+      <arg name="protocol_scope" type="array varchar" summary="protocols allowed over this fd"/>
+    </s2c>
+
+    <s2c name="expose_protocol_error">
+      <description summary="Failed to expose a protocol">
+        Failed to expose a protocol.
+      </description>
+      <arg name="reason" type="enum" interface="bus_object_expose_errors" summary="reason"/>
+    </s2c>
+
+    <c2s name="expose_protocol">
+      <description summary="Expose a supported protocol">
+        Explicitly exposes a supported protocol alongside the revision version
+        on the object.
+
+        This allows other apps to discover and request access to a protocol via the bus.
+
+        A protocol will only be available on a connection if it was requested through
+        hp_hyprtavern_bus_object_handle_v1.connect and granted by the tavern. The object
+        provider must apply the protocol_scope from new_fd as an allowlist before
+        dispatching the fd. See new_fd.
+
+        Protocol verification must be done by the client when binding. You can use the
+        one-time token passed in new_fd to check a new client's permissions.
+
+        If exclusive_mode is set non-zero, this protocol will only be exposed if it's not already
+        on the bus elsewhere. If it is, expose_protocol_error is sent and this request is ignored.
+      </description>
+      <arg name="protocol_name" type="varchar" summary="protocol name"/>
+      <arg name="version" type="uint" summary="protocol max revision version"/>
+      <arg name="required_permissions" type="array uint" summary="an array of required permissions to bind this protocol, see security_permission_type"/>
+      <arg name="exclusive_mode" type="uint" summary="exclusivity mode"/>
+    </c2s>
+
+    <c2s name="expose_property">
+      <description summary="Expose a string property">
+        Objects can expose properties that help other processes looking for an interface
+        to distinguish objects apart.
+
+        These properties can be arbitrary, but should follow standard conventions described
+        in the specific protocols, or global, agreed upon values, e.g. environment.
+
+        Used protocol(s) should specify methods of discovery in their descriptions.
+
+        Property names must come in the form of (group):(name). Group of "GLOBAL" describes
+        a non-protocol-specific property, e.g. GLOBAL:WAYLAND_DISPLAY. Both group and name
+        must be strings containing only letters, numbers, _ or +.
+
+        Setting a property value to an empty string removes the property.
+
+        Properties must not be used for data that is rapidly changing, and must not be used
+        for "quick data access". They have no security restrictions and are not designed for
+        anything other than discovery. For data access, you must use a separate protocol.
+      </description>
+      <arg name="property_name" type="varchar" summary="name of the property"/>
+      <arg name="property_value" type="varchar" summary="string value of the property"/>
+    </c2s>
+
+    <c2s name="require_permissions">
+      <description summary="Hide this object behind permissions">
+        Hide this object unless the caller has all the permissions needed.
+
+        For fine-grained control, use protocol_required_permissions in expose_protocol.
+      </description>
+
+      <arg name="required_permissions" type="array uint" summary="an array of required permissions to see this object, see security_permission_type"/>
+    </c2s>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy an object">
+        This request destroys the object and removes it from discovery.
+
+        Existing socket connections are not closed. Socket directory obtained with socket_dir
+        is not removed until the manager is destroyed.
+      </description>
+    </c2s>
+  </object>
+
+  <object name="hp_hyprtavern_bus_query_v1" version="1">
+    <description summary="A bus query">
+      This object is a query object returning data about the query.
+
+      Immediately after receiving results, destroy should be called to avoid
+      leaking wire protocol objects.
+    </description>
+
+    <s2c name="results">
+      <description summary="Query results">
+        This event returns an array of object IDs that matched the requested
+        query. These IDs can be used with the manager to create a handle and inspect
+        a given object.
+      </description>
+      <arg name="matches" type="array uint" summary="matched IDs"/>
+    </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy a query object">
+        This request destroys the query object.
+      </description>
+    </c2s>
+  </object>
+
+  <enum name="bus_object_connection_error">
+    <value idx="0" name="unknown_error" description="An unknown error occurred"/>
+    <value idx="1" name="bad_protocol" description="A requested protocol was invalid / missing"/>
+    <value idx="2" name="insufficient_permissions" description="A requested protocol's permissions were not obtained"/>
+  </enum>
+
+  <object name="hp_hyprtavern_bus_object_handle_v1" version="1">
+    <description summary="A bus object handle">
+      This object is a handle to an existing bus object. It will return detailed
+      data about the object.
+    </description>
+
+    <s2c name="failed">
+      <description summary="Failed">
+        This event is sent if the bus failed to obtain a given object. This could be
+        due to insufficient permissions, or an object not existing.
+
+        This handle should be destroyed. No further information will be sent.
+      </description>
+    </s2c>
+
+    <s2c name="name">
+      <description summary="Object name">
+        This is a human-readable name of the object. It is not unique.
+      </description>
+
+      <arg name="name" type="varchar" summary="object name"/>
+    </s2c>
+
+    <s2c name="protocols">
+      <description summary="Protocols">
+        This event contains the exposed protocols of the object. Two arrays describe names and
+        revisions.
+
+        For example, protocol at protocol_names index 0's max supported version is described by protocol_revs
+        at index 0, and so on.
+      </description>
+
+      <arg name="protocol_names" type="array varchar" summary="names of the protocols"/>
+      <arg name="protocol_revs" type="array uint" summary="supported revisions of the protocols"/>
+    </s2c>
+    
+    <s2c name="properties">
+      <description summary="Properties">
+        This event contains the exposed properties of the object.
+
+        A single array describes the properties in the form of (name)=(value).
+      </description>
+
+      <arg name="properties" type="array varchar" summary="properties exposed"/>
+    </s2c>
+
+    <c2s name="connect">
+      <description summary="Connect to the object">
+        Request connection to the object, on specified protocols.
+
+        All protocols the client wishes to use must be asked for, otherwise
+        they will be unavailable on this socket.
+
+        If any of the protocols are unavailable, inaccessible or otherwise
+        unreachable, socket_failed will be emitted.
+
+        An empty protocol_names is invalid.
+      </description>
+      <arg name="protocol_names" type="array varchar" summary="protocols requested"/>
+    </c2s>
+
+    <s2c name="socket">
+      <description summary="Socket fd">
+        This event carries the file descriptor to connect to the socket. It will be emitted
+        after .connect is requested.
+
+        You must connect to the given fd with hyprwire in CLIENT mode.
+
+        After this event is emitted, this object becomes inert. It should be destroyed.
+      </description>
+
+      <arg name="file_descriptor" type="fd" summary="hyprwire fd"/>
+    </s2c>
+
+    <s2c name="socket_failed">
+      <description summary="Socket connection failed">
+        Emitted if the connection to the object failed. Possible causes include
+        the object being already gone, insufficient permissions, or bad requested protocols.
+
+        After this event is emitted, this object becomes inert. It should be destroyed.
+      </description>
+      <arg name="error" type="enum" interface="bus_object_connection_error" summary="The error that caused the connection to fail"/>
+    </s2c>
+
+    <s2c name="done">
+      <description summary="Finished sending events">
+        All data about this handle has been sent. No further data will be sent,
+        this object should be destroyed.
+
+        You can still request a connection with connect.
+      </description>
+    </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy a query object">
+        This request destroys the object handle.
+      </description>
+    </c2s>
+  </object>
+
+  <enum name="security_permission_type">
+    <value idx="0" name="unobtainium" description="Unobtainable permission types"/>
+      <value idx="1" name="tavernkeep" description="This client is the tavern itself"/>
+
+    <value idx="10000" name="settings" description="All system settings"/>
+      <value idx="11000" name="settings_basic" description="Basic system settings"/>
+        <value idx="11001" name="settings_wallpaper" description="Manage the wallpaper(s)"/>
+
+      <value idx="12000" name="settings_sensitive" description="Sensitive system settings"/>
+        <value idx="12001" name="settings_manage_secrets" description="Manage encrypted secrets"/>
+        <value idx="12002" name="settings_manage_permissions" description="Manage app permissions"/>
+
+    <value idx="20000" name="monitoring" description="Monitoring system status"/>
+      <value idx="21000" name="monitoring_basic" description="Monitoring basic operations"/>
+        <value idx="21001" name="monitoring_all_bus_objects" description="The ability to see all bus objects regardless of permissions"/>
+
+    <value idx="30000" name="management" description="Managing the tavern"/>
+      <value idx="30001" name="management_environment" description="Managing the tavern's environment"/>
+
+  </enum>
+
+  <enum name="security_permission_mode">
+    <value idx="0" name="session" description="For the duration of the session"/>
+    <value idx="1" name="permanent" description="Forever, until denied"/>
+  </enum>
+
+  <enum name="security_permission_result">
+    <value idx="0" name="granted" description="Explicitly granted"/>
+    <value idx="1" name="already_granted" description="Already was granted"/>
+    <value idx="2" name="granted_by_policy" description="Granted because of a policy"/>
+    <value idx="3" name="denied" description="Explicitly denied"/>
+    <value idx="4" name="failed" description="Error occurred"/>
+  </enum>
+
+  <object name="hp_hyprtavern_security_object_v1" version="1">
+    <description summary="A security object">
+      This object is a security object allowing to obtain permissions on the bus.
+    </description>
+
+    <s2c name="unavailable">
+      <description summary="Security unavailable">
+        This event is emitted if the tavern cannot create a security object yet.
+
+        This is usually due to the kv store being locked.
+
+        This object is inert. You should destroy it.
+      </description>
+    </s2c>
+
+    <s2c name="token">
+      <description summary="This object's token">
+        This event is emitted immediately upon creation of this object.
+        If the token requested during creation was found, this will match it.
+        Otherwise, this will be a new token. This must be used next time you wish to obtain
+        permissions, otherwise your persistent permissions will be lost.
+
+        If the previous token had no persistent permissions, this will be recycled into a new
+        token.
+
+        It is recommended to use the kv_store for storing tokens.
+      </description>
+
+      <arg name="token" type="varchar" summary="The token"/>
+    </s2c>
+
+    <c2s name="set_identity">
+      <description summary="Set this object's identity">
+        This is an optional, but highly recommended request to estabilish this object's identity.
+        This includes information for the user to identify this app.
+
+        All arguments here are meant to be human-readable strings.
+
+        This data is saved under the token, so it will persist throughout sessions.
+      </description>
+
+      <arg name="app_name" type="varchar" summary="App's name"/>
+      <arg name="app_description" type="varchar" summary="App's description"/>
+    </c2s>
+
+    <c2s name="obtain_permission">
+      <description summary="Ask for a permission">
+        This request asks the bus to grant a given permission to this object.
+
+        This may pop up an interactive box to the user.
+
+        This request can succeed, or fail. If the permission is already granted,
+        it's treated as a success.
+
+        Permissions are grouped atomics, akin to Android. Requesting a group
+        will allow all permissions within.
+
+        permission_result will be emitted some time after this request to indicate
+        a success or failure. A client must not assume it has a permission before
+        permission_result is received.
+      </description>
+
+      <arg name="permission_type" type="enum" interface="security_permission_type" summary="Permission type"/>
+      <arg name="ask_mode" type="enum" interface="security_permission_mode" summary="In what way to ask for the permission"/>
+    </c2s>
+
+    <s2c name="permission_result">
+      <description summary="Result of a permission request">
+        This event carries information about the permission request's status
+      </description>
+
+      <arg name="permission_type" type="enum" interface="security_permission_type" summary="Permission type asked"/>
+      <arg name="permission_result" type="enum" interface="security_permission_result" summary="Result"/>
+    </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy a security object">
+        This request destroys this object.
+      </description>
+    </c2s>
+  </object>
+
+  <object name="hp_hyprtavern_security_response_v1" version="1">
+    <description summary="A security response">
+      This object gives detailed informations about the properties and permissions
+      of a given connecting client.
+    </description>
+
+    <s2c name="identity">
+      <description summary="This client's identity">
+        Emits identity data established by the tavern from the original client connection.
+        identifier is empty when no stable identity is available; providers must not persist
+        app-scoped state for an empty identifier.
+      </description>
+
+      <arg name="pid" type="uint" summary="Client's original process id, or zero when unavailable"/>
+      <arg name="name" type="varchar" summary="Core-attested application identifier"/>
+      <arg name="description" type="varchar" summary="Client-provided human-readable description"/>
+    </s2c>
+
+    <s2c name="permissions">
+      <description summary="This client's permissions">
+        Emits permissions this client has.
+      </description>
+
+      <arg name="permissions" type="array uint" summary="Client's permissions"/>
+    </s2c>
+
+    <s2c name="done">
+      <description summary="All data sent">
+        All data has been sent.
+      </description>
+    </s2c>
+
+    <s2c name="failed">
+      <description summary="Failed to get the response">
+        Failed to get the response. The token is invalid. This object is now inert
+        and should be destroyed.
+      </description>
+    </s2c>
+
+    <c2s name="requery">
+      <description summary="Ask to re-query the permissions">
+        Permissions can change over time. This request will re-send the data on this object.
+      </description>
+    </c2s>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy this object">
+        Destroys this object.
+      </description>
+    </c2s>
+  </object>
+</protocol>

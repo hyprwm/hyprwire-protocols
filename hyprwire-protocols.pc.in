@@ -1,0 +1,7 @@
+prefix=@prefix@
+datarootdir=@datarootdir@
+pkgdatadir=${pc_sysrootdir}${datarootdir}/@PACKAGE@
+
+Name: Hyprwire Protocols
+Description: Hyprwire protocol files
+Version: @HYPRWIRE_PROTOCOLS_VERSION@
