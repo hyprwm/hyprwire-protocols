@@ -67,9 +67,10 @@
         If the token is left empty, or is not found, an empty security_object will be
         created.
 
-        A manager can only create a single security object. Security objects are bound
-        to the binary path of the calling process' PID. If that is not able to be obtained,
-        they are bound to an empty path.
+        A manager can only create a single security object. Security objects are bound to
+        the core-attested identity of the original client connection. Flatpak clients use their
+        Flatpak application ID; verified host clients use their executable identity. Ambiguous
+        identities do not receive persistent grants.
 
         Security objects rely on an implemented and running session kv_store for persistence,
         and will not work without a security_agent connected.
@@ -181,8 +182,8 @@
         The connection must be estabilished on the given incoming FD in SERVER mode.
 
         security_token is a one-time token that can be used to obtain a security_token_response
-        which will give information about the connecting process' permissions. It will be empty
-        if the connecting process has no security_object attached.
+        which gives the core-attested identity and permissions of the connecting process. The token
+        is always present, is bound to this object provider, expires quickly, and may be used once.
 
         protocol_scope describes which protocols may be used over this fd. The object's provider
         must put a filter on this fd's connection to block protocols outside the scope from being bound,
@@ -522,12 +523,14 @@
 
     <s2c name="identity">
       <description summary="This client's identity">
-        Emits known data of the client's identity
+        Emits identity data established by the tavern from the original client connection.
+        identifier is empty when no stable identity is available; providers must not persist
+        app-scoped state for an empty identifier.
       </description>
 
-      <arg name="pid" type="uint" summary="Client's process id"/>
-      <arg name="name" type="varchar" summary="App's name"/>
-      <arg name="description" type="varchar" summary="App's description"/>
+      <arg name="pid" type="uint" summary="Client's original process id, or zero when unavailable"/>
+      <arg name="name" type="varchar" summary="Core-attested application identifier"/>
+      <arg name="description" type="varchar" summary="Client-provided human-readable description"/>
     </s2c>
 
     <s2c name="permissions">
