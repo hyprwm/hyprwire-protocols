@@ -35,6 +35,33 @@
     The hyprtavern core protocol describes how applications can connect to a
     hyprtavern bus, expose themselves, and discover other applications running
     on the same bus.
+
+    Permission names and matching rules are defined by Hyprtavern's permission
+    catalog (docs/PERMISSIONS.md in the hyprtavern repository).
+
+    Each array may contain at most 9999 elements. An oversized input array is a
+    protocol error. The tavern must never emit oversized or silently truncated
+    arrays, including query results, metadata, and explicit grant snapshots.
+
+    To keep snapshots representable, the bus may have at most 9999 live bus
+    objects in total, across all clients. Each object may expose at most 9999
+    distinct protocols and 9999 properties. A request that would exceed these
+    registration limits is a protocol error and must not be applied. Replacing
+    an existing entry or removing one does not consume an additional slot.
+    Permission grant limits are defined by hp_hyprtavern_permission_context_v1.
+
+    Authorization of routed connections is admission-only. The tavern checks
+    permissions before issuing the socket pair and fixes its protocol scope at
+    that point. Later grant changes, context destruction, or disconnection from
+    the tavern neither revoke nor expand an existing connection's scope. A new
+    connection is required to obtain a different scope. Application protocols
+    may define additional authorization for their own operations.
+
+    Barmaids are started by the tavern and authenticated through private startup
+    channels. The tavern must reserve the barmaid, kv_store, and
+    permission_authentication protocol names for the corresponding barmaids it
+    started. Neither a claimed name, exclusivity, nor ordinary permission bypass
+    authorizes another provider to register these protocols.
   </description>
 
   <enum name="bus_query_filter_mode">
@@ -44,6 +71,11 @@
 
   <enum name="bus_manager_errors">
     <value idx="0" name="invalid_property" description="property entry was invalid"/>
+  </enum>
+
+  <enum name="environment_update_result">
+    <value idx="0" name="applied" description="The tavern applied the environment update"/>
+    <value idx="1" name="denied" description="The caller does not satisfy core.unobtainium.unsandboxed"/>
   </enum>
 
   <object name="hp_hyprtavern_core_manager_v1" version="1">
@@ -60,34 +92,55 @@
       </description>
     </s2c>
 
-    <c2s name="get_security_object">
-      <description summary="Create a security object">
-        Create a security object. This can be used to obtain permissions.
+    <c2s name="create_permission_context">
+      <description summary="Create a permission context">
+        Create a permission context that can be used to request permissions.
 
-        If the token is left empty, or is not found, an empty security_object will be
-        created.
+        A client connection may have at most one live permission context, even if
+        multiple managers are bound. Destroying it permits another to be created.
+        Its grants apply to this client connection, not automatically to other
+        connections from the same application.
 
-        A manager can only create a single security object. Security objects are bound
-        to the binary path of the calling process' PID. If that is not able to be obtained,
-        they are bound to an empty path.
+        The tavern associates the context with the caller's attested application
+        identity, including its identity kind. A persistence token selects an
+        independent saved context owned by that identity; it is not a bearer grant.
+        Restoration requires the same stable attested owner. A token belonging
+        to another owner causes unavailable, without restoring any of its data.
 
-        Security objects rely on an implemented and running session kv_store for persistence,
-        and will not work without a security_agent connected.
+        Permission contexts use the plaintext session kv_store for persistence.
+        It requires no password or user interaction. If the store is available
+        and the caller has a stable identity, an empty or unknown token creates
+        a new saved context. Unstable or unknown identities may only receive
+        session grants and policy decisions.
 
-        By default, non-sandboxed apps skip all permissions. This can be changed in the tavern's
-        settings, and apps must never assume they have any permissions. They must request
-        permissions and obtain them.
+        An initializing or unavailable store disables restoration and creation of persistent
+        grants, but session grants and policy decisions remain available. A supplied
+        token is retained as an unverified restoration hint, not replaced or trusted.
+        The persistence_token event carries an empty string until a saved context
+        can be verified or created. The client must retain its previous durable token.
+        When the store becomes available, the tavern retries restoration or creation
+        and emits the durable token. Until then, no grants are restored from the token.
+
+        The tavern may bypass ordinary permission checks for some principals by policy.
+        Applications must not assume such a policy applies and should request every named
+        permission they require.
       </description>
-      <arg name="token" type="varchar" summary="Security object's token"/>
-      <returns iface="hp_hyprtavern_security_object_v1"/>
+      <arg name="persistence_token" type="varchar" summary="previously issued persistence token, or empty"/>
+      <returns iface="hp_hyprtavern_permission_context_v1"/>
     </c2s>
 
-    <c2s name="get_security_response">
-      <description summary="Create a security response">
-        Create a security response. This can be used to see a connecting client's permissions.
+    <c2s name="redeem_connection_principal_token">
+      <description summary="Redeem a connection principal token">
+        Redeem the connection_principal_token from hp_hyprtavern_bus_object_v1.new_fd
+        to inspect the principal associated with that connection.
+
+        The initial snapshot is retained at admission and does not require the
+        originating client or its permission context to remain alive. Redeeming
+        an unexpired, unused token as its intended recipient must still succeed
+        after that client disconnects or destroys its context.
       </description>
-      <arg name="token" type="varchar" summary="One-time token"/>
-      <returns iface="hp_hyprtavern_security_response_v1"/>
+      <arg name="connection_principal_token" type="varchar" summary="connection principal token from new_fd"/>
+      <returns iface="hp_hyprtavern_connection_principal_v1"/>
     </c2s>
 
     <c2s name="get_bus_object">
@@ -97,22 +150,31 @@
         You are allowed to expose multiple objects, but it is discouraged.
 
         object_name does not have to be unique on the bus.
+
+        required_permissions supplies the initial object-level visibility and
+        connection requirements. These are applied atomically with creation, so
+        the object is never temporarily public. An empty array imposes no
+        object-level requirements. See require_permissions.
       </description>
       <arg name="object_name" type="varchar" summary="A human-readable, short name for the object"/>
+      <arg name="required_permissions" type="array varchar" summary="initial permissions required to discover or connect to the object"/>
       <returns iface="hp_hyprtavern_bus_object_v1"/>
     </c2s>
 
     <c2s name="get_query_object">
       <description summary="Create a query object">
-        Create a query object. A query object takes an array of protocol names as input. 
+        Create a query object. A query object takes an array of protocol names as input.
 
         Optionally, you can include a list of properties to filter by. If you do not wish to add
         any, leave the array empty.
 
-        Each string in the list of properties must come in the form of (name)=(value).
-        An invalid_property error is raised otherwise.
+        Each string in the list of properties must come in the form of (name)=(value),
+        split at the first equals sign. The name follows expose_property's grammar.
+        An invalid_property error is raised otherwise. Values are matched exactly.
 
-        Leaving the protocol_names empty will return all objects on the bus.
+        An empty filter array imposes no constraint, regardless of its filter mode.
+        The protocol and property filters must both match. Only objects visible to
+        the caller are returned; empty arrays do not bypass visibility permissions.
       </description>
       <arg name="protocol_names" type="array varchar" summary="An array of protocol names to query by"/>
       <arg name="protocol_names_filter" type="enum" interface="bus_query_filter_mode" summary="Filter mode for the array of protocol names"/>
@@ -125,6 +187,9 @@
       <description summary="Create an object handle">
         Create an object handle. Given an object ID, this object will return information about
         the bus object.
+
+        IDs identify one registration and must not be reused during the lifetime
+        of a tavern instance. A handle never retargets to a replacement provider.
       </description>
       <arg name="id" type="uint" summary="Bus object ID"/>
       <returns iface="hp_hyprtavern_bus_object_handle_v1"/>
@@ -139,12 +204,26 @@
 
         An empty value unsets an environment variable.
 
-        This request requires the management_environment permission for variables that are other than:
-        "WAYLAND_DISPLAY", "DISPLAY".
+        Setting or unsetting any environment variable requires core.unobtainium.unsandboxed.
+        This includes non-display variables, which can also affect trusted barmaid
+        execution and UI placement. No ordinary permission authorizes environment
+        updates. core.unobtainium.unsandboxed is derived from verified same-user, unsandboxed
+        host status; it cannot be granted by a popup or inferred from ordinary
+        permission bypass.
 
-        These variables can be set by any client due to potential cat-and-mouse scenarios where in order
-        to get a permission, kv needs to be accessible, but because kv is locked, kv needs a display env
-        to show the kv prompt on.
+        The arrays must have equal lengths. Names must be nonempty, contain neither
+        '=' nor NUL, and occur at most once; values must not contain NUL. Malformed
+        input is a protocol error. The tavern validates the entire request and
+        checks authorization before applying or forwarding any changes.
+
+        A valid but unauthorized request returns update_tavern_environment_result
+        with denied, without changing or forwarding any environment values. This
+        is not a protocol error and does not disconnect the client.
+
+        Each valid request receives exactly one update_tavern_environment_result,
+        in request order on this manager, unless the manager is destroyed or the
+        client disconnects first. Empty arrays perform no changes but follow the
+        same authorization and result rules.
       </description>
       <arg name="env_names" type="array varchar" summary="An array of environment variable names"/>
       <arg name="env_values" type="array varchar" summary="An array of environment variable values"/>
@@ -154,19 +233,31 @@
       <description summary="Destroy the manager">
         This request destroys the manager. All objects remain valid until they are destroyed.
 
-        Existing socket connections are not closed. Socket directory obtained with socket_dir
-        is removed once all objects are destroyed.
+        Existing socket connections are not closed.
       </description>
     </c2s>
+
+    <s2c name="update_tavern_environment_result">
+      <description summary="Result of an environment update">
+        Completes the next outstanding update_tavern_environment request on this
+        manager. Results are emitted in request order, including denials.
+
+        applied confirms that the tavern committed the update; it is not an
+        acknowledgement from each barmaid that it has processed the forwarded
+        environment. denied leaves the environment unchanged and permits further
+        requests on this connection.
+      </description>
+      <arg name="result" type="enum" interface="environment_update_result" summary="environment update result"/>
+    </s2c>
   </object>
 
   <enum name="bus_object_errors">
-    <value idx="0" name="invalid_socket_path" description="socket path chosen is illegal"/>
-    <value idx="1" name="invalid_property_name" description="chosen property name is illegal"/>
+    <value idx="0" name="invalid_property_name" description="chosen property name is illegal"/>
   </enum>
 
   <enum name="bus_object_expose_errors">
-    <value idx="0" name="already_exposed" description="protocol is exclusive, but already exposed"/>
+    <value idx="0" name="already_exposed" description="registration conflicts with protocol exclusivity"/>
+    <value idx="1" name="unauthorized_provider" description="provider is not authorized to register this protocol"/>
   </enum>
 
   <object name="hp_hyprtavern_bus_object_v1" version="1">
@@ -178,26 +269,40 @@
     <s2c name="new_fd">
       <description summary="New connection requested">
         Another client on the bus requested to connect to this object.
-        The connection must be estabilished on the given incoming FD in SERVER mode.
+        The connection must be established on the given incoming FD in SERVER mode.
 
-        security_token is a one-time token that can be used to obtain a security_token_response
-        which will give information about the connecting process' permissions. It will be empty
-        if the connecting process has no security_object attached.
+        connection_principal_token is always a short-lived, single-use token bound to this
+        recipient. It can only be redeemed by this object provider with
+        redeem_connection_principal_token to inspect the principal associated with this
+        connection.
+
+        The token retains an immutable admission-time snapshot of the principal's
+        identity, authority, permission policy, display identity, and explicit grants
+        until it is redeemed or expires. The originating client's disconnection or
+        permission-context destruction must not invalidate it. After redemption,
+        the principal object retains the admitted identity and authority for its
+        own lifetime; expiry of the consumed token has no effect on that object.
 
         protocol_scope describes which protocols may be used over this fd. The object's provider
-        must put a filter on this fd's connection to block protocols outside the scope from being bound,
-        in order to block the protocols from being advertised in the handshake.
+        must install an allowlist before dispatching any input or starting the handshake.
+        Protocols outside the scope must neither be advertised nor be bindable, even
+        if the client guesses their names. The scope cannot change during this connection.
+
+        The principal identifies the client to which the tavern issued the fd. It does
+        not attest every subsequent writer: an fd may be inherited or delegated.
       </description>
       <arg name="wire_fd" type="fd" summary="hyprwire file descriptor"/>
-      <arg name="security_token" type="varchar" summary="one-time security token"/>
+      <arg name="connection_principal_token" type="varchar" summary="short-lived, single-use, recipient-bound principal token"/>
       <arg name="protocol_scope" type="array varchar" summary="protocols allowed over this fd"/>
     </s2c>
 
     <s2c name="expose_protocol_error">
       <description summary="Failed to expose a protocol">
-        Failed to expose a protocol.
+        Failed to expose the named protocol. The request has no effect; an existing
+        registration on this object, if any, remains unchanged.
       </description>
       <arg name="reason" type="enum" interface="bus_object_expose_errors" summary="reason"/>
+      <arg name="protocol_name" type="varchar" summary="protocol whose exposure failed"/>
     </s2c>
 
     <c2s name="expose_protocol">
@@ -212,15 +317,28 @@
         provider must apply the protocol_scope from new_fd as an allowlist before
         dispatching the fd. See new_fd.
 
-        Protocol verification must be done by the client when binding. You can use the
-        one-time token passed in new_fd to check a new client's permissions.
+        The object provider can redeem the connection_principal_token passed in new_fd
+        to inspect the connecting principal before accepting protocol use.
 
-        If exclusive_mode is set non-zero, this protocol will only be exposed if it's not already
-        on the bus elsewhere. If it is, expose_protocol_error is sent and this request is ignored.
+        All required_permissions must be satisfied at admission, in addition to the
+        object's requirements. Protocol definitions must document their access
+        requirements so clients can request permissions before connecting.
+
+        If exclusive_mode is non-zero, no other object may expose this protocol.
+        An existing exclusive registration also rejects later non-exclusive
+        registrations. Exclusivity is checked and reserved atomically. Conflicts
+        produce expose_protocol_error with already_exposed.
+
+        Reserved barmaid protocols may only be registered by their authenticated,
+        tavern-started providers; otherwise unauthorized_provider is returned.
+        Exclusivity alone does not establish a provider's identity or trust.
+
+        Exposing the same protocol again on this object atomically replaces its
+        registration if valid. Changes affect new admissions, not existing sockets.
       </description>
       <arg name="protocol_name" type="varchar" summary="protocol name"/>
       <arg name="version" type="uint" summary="protocol max revision version"/>
-      <arg name="required_permissions" type="array uint" summary="an array of required permissions to bind this protocol, see security_permission_type"/>
+      <arg name="required_permissions" type="array varchar" summary="canonical permission names required to bind this protocol"/>
       <arg name="exclusive_mode" type="uint" summary="exclusivity mode"/>
     </c2s>
 
@@ -236,34 +354,44 @@
 
         Property names must come in the form of (group):(name). Group of "GLOBAL" describes
         a non-protocol-specific property, e.g. GLOBAL:WAYLAND_DISPLAY. Both group and name
-        must be strings containing only letters, numbers, _ or +.
+        must be nonempty ASCII strings containing only letters, numbers, _ or +.
 
         Setting a property value to an empty string removes the property.
 
         Properties must not be used for data that is rapidly changing, and must not be used
-        for "quick data access". They have no security restrictions and are not designed for
-        anything other than discovery. For data access, you must use a separate protocol.
+        for "quick data access". All properties are visible to anyone allowed to
+        inspect the object; there are no per-property restrictions. They are
+        provider-supplied discovery hints, not attested identity or authorization
+        data. For data access, you must use a separate protocol.
       </description>
       <arg name="property_name" type="varchar" summary="name of the property"/>
       <arg name="property_value" type="varchar" summary="string value of the property"/>
     </c2s>
 
     <c2s name="require_permissions">
-      <description summary="Hide this object behind permissions">
-        Hide this object unless the caller has all the permissions needed.
+      <description summary="Set object-level permission requirements">
+        Atomically replace the permissions required to discover, inspect, or connect
+        to this object. All listed requirements must be satisfied. An empty array
+        removes object-level requirements. Initial requirements can be set without
+        a public discovery window using get_bus_object.
 
-        For fine-grained control, use protocol_required_permissions in expose_protocol.
+        The core.monitoring.sensitive.all_bus_objects permission permits inspection
+        despite visibility requirements, but does not waive connection requirements.
+        Existing handles do not preserve authorization: requirements are checked
+        again at connection admission. Existing sockets are unaffected.
+
+        For fine-grained control, use the required_permissions argument of expose_protocol.
       </description>
 
-      <arg name="required_permissions" type="array uint" summary="an array of required permissions to see this object, see security_permission_type"/>
+      <arg name="required_permissions" type="array varchar" summary="canonical permission names required to discover or connect to this object"/>
     </c2s>
 
     <c2s name="destroy" destructor="true">
       <description summary="Destroy an object">
-        This request destroys the object and removes it from discovery.
+        This request destroys the object, removes it from discovery, and releases
+        its protocol registrations. Handles to it can no longer admit connections.
 
-        Existing socket connections are not closed. Socket directory obtained with socket_dir
-        is not removed until the manager is destroyed.
+        Existing socket connections are not closed.
       </description>
     </c2s>
   </object>
@@ -281,6 +409,12 @@
         This event returns an array of object IDs that matched the requested
         query. These IDs can be used with the manager to create a handle and inspect
         a given object.
+
+        Exactly one results event is sent, including when no objects match. It is
+        a snapshot, not a subscription: objects may change or disappear before a
+        handle is obtained. No visibility or connection authorization is reserved.
+        All matches are returned; the bus-wide registration limit ensures that
+        there are at most 9999 IDs, without truncation or pagination.
       </description>
       <arg name="matches" type="array uint" summary="matched IDs"/>
     </s2c>
@@ -295,13 +429,18 @@
   <enum name="bus_object_connection_error">
     <value idx="0" name="unknown_error" description="An unknown error occurred"/>
     <value idx="1" name="bad_protocol" description="A requested protocol was invalid / missing"/>
-    <value idx="2" name="insufficient_permissions" description="A requested protocol's permissions were not obtained"/>
+    <value idx="2" name="insufficient_permissions" description="Object or protocol permission requirements were not satisfied"/>
   </enum>
 
   <object name="hp_hyprtavern_bus_object_handle_v1" version="1">
     <description summary="A bus object handle">
       This object is a handle to an existing bus object. It will return detailed
       data about the object.
+
+      Creation emits either failed, or one coherent snapshot consisting of name,
+      protocols, properties, and provider_identity, followed by done. The order of
+      the snapshot events before done is unspecified. This handle remains bound
+      to the same registration instance even if the provider subsequently exits.
     </description>
 
     <s2c name="failed">
@@ -309,7 +448,8 @@
         This event is sent if the bus failed to obtain a given object. This could be
         due to insufficient permissions, or an object not existing.
 
-        This handle should be destroyed. No further information will be sent.
+        This handle is inert and must be destroyed. No further information will
+        be sent and connect is not allowed.
       </description>
     </s2c>
 
@@ -328,12 +468,15 @@
 
         For example, protocol at protocol_names index 0's max supported version is described by protocol_revs
         at index 0, and so on.
+
+        The arrays have equal lengths and protocol names are unique. Advertising
+        a protocol here does not imply that the caller may connect to it.
       </description>
 
       <arg name="protocol_names" type="array varchar" summary="names of the protocols"/>
       <arg name="protocol_revs" type="array uint" summary="supported revisions of the protocols"/>
     </s2c>
-    
+
     <s2c name="properties">
       <description summary="Properties">
         This event contains the exposed properties of the object.
@@ -346,7 +489,9 @@
 
     <c2s name="connect">
       <description summary="Connect to the object">
-        Request connection to the object, on specified protocols.
+        Request connection to the object, on specified protocols. This may be called
+        only once and only after done. A second call, including while the first is
+        pending, is a protocol error. Destroy is allowed while a call is pending.
 
         All protocols the client wishes to use must be asked for, otherwise
         they will be unavailable on this socket.
@@ -354,7 +499,16 @@
         If any of the protocols are unavailable, inaccessible or otherwise
         unreachable, socket_failed will be emitted.
 
-        An empty protocol_names is invalid.
+        The tavern rechecks the registration and all current object and requested
+        protocol requirements before issuing either endpoint. Admission is
+        all-or-nothing; exactly one socket or socket_failed event follows unless
+        the handle is destroyed or the client disconnects first.
+
+        This request never opens a permission popup. Clients must explicitly
+        obtain the required permissions before connecting. A stale metadata
+        snapshot or permission result is not a reservation of access.
+
+        An empty protocol_names or duplicate name is a protocol error.
       </description>
       <arg name="protocol_names" type="array varchar" summary="protocols requested"/>
     </c2s>
@@ -384,44 +538,40 @@
 
     <s2c name="done">
       <description summary="Finished sending events">
-        All data about this handle has been sent. No further data will be sent,
-        this object should be destroyed.
-
-        You can still request a connection with connect.
+        The initial metadata snapshot is complete. No further metadata updates
+        will be sent. The handle is now ready for connect and is not inert.
+        Destroy it if no connection is needed.
       </description>
     </s2c>
 
     <c2s name="destroy" destructor="true">
-      <description summary="Destroy a query object">
-        This request destroys the object handle.
+      <description summary="Destroy an object handle">
+        This request destroys the object handle and cancels a connection attempt
+        not yet admitted. It does not revoke a socket already issued.
       </description>
     </c2s>
+
+    <s2c name="provider_identity">
+      <description summary="Attested identity of the registered provider">
+        Reports the tavern-attested application identity of this registration's
+        provider, using the same identity rules as connection_principal.application_identity.
+        The tavern must issue any subsequent socket from this handle to that same
+        registered provider, or fail the connection attempt. A name or property
+        supplied by the provider must never be substituted for this identity.
+
+        This authenticates the original provider receiving the endpoint, not any
+        later process to which it delegates the fd. Unknown identity is reported
+        with an empty identifier and stable_across_executions set to zero.
+      </description>
+      <arg name="attested_app_id" type="varchar" summary="tavern-attested provider identifier"/>
+      <arg name="identity_kind" type="enum" interface="application_identity_kind" summary="kind of attested identifier"/>
+      <arg name="stable_across_executions" type="uint" summary="non-zero if the identity is stable across executions"/>
+    </s2c>
   </object>
 
-  <enum name="security_permission_type">
-    <value idx="0" name="unobtainium" description="Unobtainable permission types"/>
-      <value idx="1" name="tavernkeep" description="This client is the tavern itself"/>
-
-    <value idx="10000" name="settings" description="All system settings"/>
-      <value idx="11000" name="settings_basic" description="Basic system settings"/>
-        <value idx="11001" name="settings_wallpaper" description="Manage the wallpaper(s)"/>
-
-      <value idx="12000" name="settings_sensitive" description="Sensitive system settings"/>
-        <value idx="12001" name="settings_manage_secrets" description="Manage encrypted secrets"/>
-        <value idx="12002" name="settings_manage_permissions" description="Manage app permissions"/>
-
-    <value idx="20000" name="monitoring" description="Monitoring system status"/>
-      <value idx="21000" name="monitoring_basic" description="Monitoring basic operations"/>
-        <value idx="21001" name="monitoring_all_bus_objects" description="The ability to see all bus objects regardless of permissions"/>
-
-    <value idx="30000" name="management" description="Managing the tavern"/>
-      <value idx="30001" name="management_environment" description="Managing the tavern's environment"/>
-
-  </enum>
-
   <enum name="security_permission_mode">
-    <value idx="0" name="session" description="For the duration of the session"/>
-    <value idx="1" name="permanent" description="Forever, until denied"/>
+    <value idx="0" name="session" description="Until the permission context is destroyed or its client disconnects"/>
+    <value idx="1" name="permanent" description="Persisted for restoration by the same owner and token until revoked"/>
   </enum>
 
   <enum name="security_permission_result">
@@ -432,128 +582,280 @@
     <value idx="4" name="failed" description="Error occurred"/>
   </enum>
 
-  <object name="hp_hyprtavern_security_object_v1" version="1">
-    <description summary="A security object">
-      This object is a security object allowing to obtain permissions on the bus.
+  <enum name="principal_authority">
+    <value idx="0" name="external" description="principal represents an external application connection"/>
+    <value idx="1" name="internal" description="principal was established by the tavern for an internal connection"/>
+  </enum>
+
+  <enum name="application_identity_kind">
+    <value idx="0" name="unknown" description="no application identity could be attested"/>
+    <value idx="1" name="host_executable" description="identity is an attested executable of a verified same-user, unsandboxed host process"/>
+    <value idx="2" name="flatpak" description="identity is an attested Flatpak application ID"/>
+    <value idx="3" name="internal" description="identity is assigned by the tavern to an internal application"/>
+  </enum>
+
+  <enum name="permission_policy">
+    <value idx="0" name="enforced" description="ordinary permission checks are enforced"/>
+    <value idx="1" name="bypass_ordinary_permissions" description="ordinary permission checks are bypassed by policy"/>
+  </enum>
+
+  <object name="hp_hyprtavern_permission_context_v1" version="1">
+    <description summary="A permission context">
+      This object allows an application to request permissions on the bus and persist
+      grants across sessions.
+
+      Session grants last until this context is destroyed or its client connection
+      closes, whichever happens first. They do not authorize other client connections.
+      Expiration or revocation affects future admissions, not existing routed sockets.
+
+      The union of session and permanent explicit grants may contain at most
+      9999 distinct permission names. A request that would exceed this limit
+      returns permission_result with failed without adding or persisting a grant.
+      Restoration that would exceed the limit makes the context unavailable;
+      grants must not be partially restored or silently truncated.
+
+      Enumeration and revocation of saved grants are outside this protocol's
+      scope and are reserved for a separate permission-management protocol.
     </description>
 
     <s2c name="unavailable">
-      <description summary="Security unavailable">
-        This event is emitted if the tavern cannot create a security object yet.
+      <description summary="Permission context unavailable">
+        This event is emitted if the tavern cannot establish the context, for example
+        because authorization services are not initialized or the supplied token
+        belongs to another identity. It may also follow a deferred restoration that
+        fails its ownership check. No grants remain active through this context.
 
-        This is usually due to the kv store being locked.
-
-        This object is inert. You should destroy it.
+        This object is inert. Destroy it before creating another context to retry.
+        An unavailable store alone does not make a context unavailable: session grants
+        and policy decisions remain possible without persistence.
       </description>
     </s2c>
 
-    <s2c name="token">
-      <description summary="This object's token">
-        This event is emitted immediately upon creation of this object.
-        If the token requested during creation was found, this will match it.
-        Otherwise, this will be a new token. This must be used next time you wish to obtain
-        permissions, otherwise your persistent permissions will be lost.
+    <s2c name="persistence_token">
+      <description summary="This context's persistence token">
+        Emitted on creation unless unavailable is sent instead. A nonempty token
+        identifies a verified, durably stored context owned by the caller's stable
+        attested identity. It matches the supplied token on successful restoration;
+        otherwise it is a newly generated token, never an adopted unknown input token.
 
-        If the previous token had no persistent permissions, this will be recycled into a new
-        token.
+        An empty token means no saved context is available yet. It must not replace
+        a token the client previously saved. It conveys no restored permissions.
+        The tavern sends this event again with a nonempty token when deferred
+        restoration or creation succeeds. No retry is possible without a stable
+        attested identity.
 
-        It is recommended to use the kv_store for storing tokens.
+        Save nonempty tokens for future restoration, preferably as app-scoped KV
+        values. Read any previously saved token before replacing it; a failed or
+        unavailable KV lookup must not be treated as value_missing. Losing a
+        token loses the reference to that saved context, not its stored grants.
+        A token does not promise that future writes will succeed; permission_result
+        reports whether a grant was actually persisted.
       </description>
 
-      <arg name="token" type="varchar" summary="The token"/>
+      <arg name="persistence_token" type="varchar" summary="durable restoration token, or empty without a saved context"/>
     </s2c>
 
-    <c2s name="set_identity">
-      <description summary="Set this object's identity">
-        This is an optional, but highly recommended request to estabilish this object's identity.
-        This includes information for the user to identify this app.
+    <c2s name="set_display_identity">
+      <description summary="Set this context's display identity">
+        This optional request provides human-readable strings for presenting this
+        application to the user.
 
-        All arguments here are meant to be human-readable strings.
+        These strings are self-asserted by the application. They are not an attested
+        application identity and must not be used for authorization.
 
-        This data is saved under the token, so it will persist throughout sessions.
+        This data is saved with the context when persistence is available; otherwise
+        it remains session-only. Updating it must not alter an already pending prompt.
       </description>
 
-      <arg name="app_name" type="varchar" summary="App's name"/>
-      <arg name="app_description" type="varchar" summary="App's description"/>
+      <arg name="app_display_name" type="varchar" summary="human-readable application name"/>
+      <arg name="app_display_description" type="varchar" summary="human-readable application description"/>
     </c2s>
 
-    <c2s name="obtain_permission">
+    <c2s name="request_permission">
       <description summary="Ask for a permission">
         This request asks the bus to grant a given permission to this object.
 
         This may pop up an interactive box to the user.
 
+        core.unobtainium.unsandboxed never prompts: it returns granted_by_policy for verified
+        same-user unsandboxed host clients and denied otherwise, regardless of
+        ordinary permission bypass. It is never a saved or explicit grant.
+
         This request can succeed, or fail. If the permission is already granted,
         it's treated as a success.
 
-        Permissions are grouped atomics, akin to Android. Requesting a group
-        will allow all permissions within.
+        Permissions are identified by canonical dotted names. A permission group may define
+        a canonical catch-all name for all permissions within that group.
 
         permission_result will be emitted some time after this request to indicate
         a success or failure. A client must not assume it has a permission before
         permission_result is received.
+
+        At most one request for a given permission_name may be pending on this
+        context. A duplicate pending request is a protocol error; different names
+        may be requested concurrently. Each request receives exactly one result
+        unless the context becomes unavailable, is destroyed, or its client disconnects.
+
+        ask_mode is the maximum lifetime requested. A permanent request may yield
+        a session grant if the user chooses it or persistence is unavailable; the
+        actual lifetime is reported in permission_result. A session request must
+        not create a new permanent grant. Existing permanent grants may be reused.
       </description>
 
-      <arg name="permission_type" type="enum" interface="security_permission_type" summary="Permission type"/>
+      <arg name="permission_name" type="varchar" summary="canonical permission name"/>
       <arg name="ask_mode" type="enum" interface="security_permission_mode" summary="In what way to ask for the permission"/>
     </c2s>
 
     <s2c name="permission_result">
       <description summary="Result of a permission request">
-        This event carries information about the permission request's status
+        This event completes the request with the matching permission_name.
+        grant_mode gives the actual lifetime for granted and already_granted.
+        permanent may only be reported after the grant is durably stored under
+        this context's verified owner and token. A failed persistence write must
+        not be reported as a permanent grant.
+
+        For granted_by_policy, denied, and failed, grant_mode is session and has
+        no grant-lifetime meaning. Policy decisions are not stored explicit grants.
       </description>
 
-      <arg name="permission_type" type="enum" interface="security_permission_type" summary="Permission type asked"/>
+      <arg name="permission_name" type="varchar" summary="canonical permission name requested"/>
       <arg name="permission_result" type="enum" interface="security_permission_result" summary="Result"/>
+      <arg name="grant_mode" type="enum" interface="security_permission_mode" summary="actual lifetime of an explicit grant, otherwise session"/>
     </s2c>
 
     <c2s name="destroy" destructor="true">
-      <description summary="Destroy a security object">
-        This request destroys this object.
+      <description summary="Destroy a permission context">
+        Destroys this context, cancels pending prompts, and stops using its grants
+        for future admissions. Saved grants are not deleted and existing sockets
+        are unaffected. Results processed before this request are not undone.
       </description>
     </c2s>
   </object>
 
-  <object name="hp_hyprtavern_security_response_v1" version="1">
-    <description summary="A security response">
-      This object gives detailed informations about the properties and permissions
-      of a given connecting client.
+  <object name="hp_hyprtavern_connection_principal_v1" version="1">
+    <description summary="A connection principal">
+      This object reports the identity and authorization state the tavern associated
+      with a connection. Each successful query emits one authority, process_identity,
+      application_identity, display_identity, and explicit_permission_grants event,
+      followed by done.
+
+      Identity is associated with the original admitted client, not inferred from
+      the routed socket's peer credentials. Identity kind and identifier together
+      identify the application; neither a display label nor PID is a substitute.
+
+      The initial snapshot is the admission-time snapshot retained by the token,
+      even if the originating client or context no longer exists. Requery may
+      report current permission policy, display identity, and grants while live
+      state is available. The admitted process identity, application identity,
+      and authority remain fixed; PID reuse or a replacement client connection
+      must never retarget this object to another principal.
     </description>
 
-    <s2c name="identity">
-      <description summary="This client's identity">
-        Emits known data of the client's identity
+    <s2c name="authority">
+      <description summary="Principal authority and permission policy">
+        Reports how the principal was established and whether ordinary permission
+        checks apply. bypass_ordinary_permissions is a policy decision; it does not
+        imply that every permission name is explicitly granted.
+
+        authority is fixed at admission. permission_policy is the admission-time
+        policy in the initial snapshot and the current policy on successful requery.
       </description>
 
-      <arg name="pid" type="uint" summary="Client's process id"/>
-      <arg name="name" type="varchar" summary="App's name"/>
-      <arg name="description" type="varchar" summary="App's description"/>
+      <arg name="authority" type="enum" interface="principal_authority" summary="authority that established the principal"/>
+      <arg name="permission_policy" type="enum" interface="permission_policy" summary="permission enforcement policy"/>
     </s2c>
 
-    <s2c name="permissions">
-      <description summary="This client's permissions">
-        Emits permissions this client has.
+    <s2c name="process_identity">
+      <description summary="Observed process identity">
+        Reports the process ID observed by the tavern for this connection. A process
+        ID is transient and is not an application identity.
+
+        This is the PID in the tavern's process namespace at admission. It may no
+        longer refer to the original process and must not be used for authorization.
       </description>
 
-      <arg name="permissions" type="array uint" summary="Client's permissions"/>
+      <arg name="pid" type="uint" summary="observed process ID"/>
+    </s2c>
+
+    <s2c name="application_identity">
+      <description summary="Attested application identity">
+        Reports the application identity attested by the tavern, not a string supplied
+        by the application. attested_app_id is interpreted according to identity_kind.
+        stable_across_executions is non-zero only when this identity is stable across executions.
+
+        host_executable guarantees that the admitted process was positively
+        verified as unsandboxed and had the same effective UID as the tavern.
+        It attests core.unobtainium.unsandboxed independently of permission_policy,
+        including when ordinary permission bypass is disabled. Missing or ambiguous
+        sandbox information must never be reported as host_executable.
+
+        Unknown identity has an empty identifier and stable_across_executions equal
+        to zero. Unknown or unstable identities cannot own persistent app-scoped state.
+      </description>
+
+      <arg name="attested_app_id" type="varchar" summary="tavern-attested application identifier"/>
+      <arg name="identity_kind" type="enum" interface="application_identity_kind" summary="kind of attested application identifier"/>
+      <arg name="stable_across_executions" type="uint" summary="non-zero if the attested identity is stable across executions"/>
+    </s2c>
+
+    <s2c name="display_identity">
+      <description summary="Self-asserted display identity">
+        Reports optional, human-readable strings supplied by the application. These
+        strings are not attested and must not be used for authorization. Use
+        application_identity for the tavern-attested identity.
+      </description>
+
+      <arg name="app_display_name" type="varchar" summary="human-readable application name"/>
+      <arg name="app_display_description" type="varchar" summary="human-readable application description"/>
+    </s2c>
+
+    <s2c name="explicit_permission_grants">
+      <description summary="Explicit permission grants">
+        Reports only canonical permission names explicitly granted to this principal.
+        Each name appears at most once, with at most 9999 names in total.
+        Policy bypass is reported separately by authority and must not be inferred from
+        this list. An empty list does not negate a bypass_ordinary_permissions policy.
+
+        The initial snapshot reports grants at admission, which may no longer be
+        active when this event is received. Successful requery reports current grants.
+        Neither snapshot is a list of protocols authorized on the fd.
+        Later changes to these grants do not change the admission-time protocol_scope.
+        core.unobtainium.unsandboxed is derived from host status and is never in this list.
+      </description>
+
+      <arg name="permission_names" type="array varchar" summary="explicitly granted canonical permission names"/>
     </s2c>
 
     <s2c name="done">
       <description summary="All data sent">
-        All data has been sent.
+        All data for the current snapshot has been sent.
       </description>
     </s2c>
 
     <s2c name="failed">
-      <description summary="Failed to get the response">
-        Failed to get the response. The token is invalid. This object is now inert
-        and should be destroyed.
+      <description summary="Failed to redeem or query the principal">
+        The token was invalid, expired, already used, redeemed by the wrong recipient,
+        or the principal could not be queried. This object is now inert and should be
+        destroyed.
+
+        Initial redemption must not fail merely because the originating client
+        disconnected or its permission context was destroyed: the token retains
+        the admission snapshot. A later requery may fail if live state is unavailable.
       </description>
     </s2c>
 
     <c2s name="requery">
-      <description summary="Ask to re-query the permissions">
-        Permissions can change over time. This request will re-send the data on this object.
+      <description summary="Re-query the principal">
+        Principal data can change over time. After done, this request sends a new
+        complete snapshot, terminated by done, on this object. Only one snapshot
+        may be pending; requesting another before done is a protocol error.
+
+        Unlike initial redemption, requery requires live state for the original
+        principal and may fail after its client disconnects or context is destroyed.
+        A failed query does not invalidate the previously received admission identity.
+
+        Requery is informational, not reauthorization of the existing fd. Neither
+        a changed grant list nor a failed query revokes or expands its original scope.
       </description>
     </c2s>
 

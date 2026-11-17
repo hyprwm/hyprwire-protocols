@@ -35,21 +35,34 @@
     The permission_authentication protocol allows to request user-interactable
     permission popups.
 
-    This protocol must be guarded behind the "tavernkeep" permission.
+    This protocol must be guarded behind the "core.unobtainium.tavernkeep" permission.
+
+    Its provider must be the permission barmaid started and authenticated by the
+    tavern over its private startup channel. The tavern must not accept permission
+    decisions from an arbitrary provider discovered by protocol name. The provider
+    must authenticate the tavern's internal authority before accepting transactions;
+    ordinary permission bypass does not confer that authority.
 
     permission_authentication is an exclusive protocol. It must be exposed with the exclusivity flag.
   </description>
 
   <enum name="ask_type">
-    <value idx="0" name="session" description="Session"/>
-    <value idx="1" name="persist" description="Persistent"/>
+    <value idx="0" name="session" description="Until the requesting permission context ends"/>
+    <value idx="1" name="persist" description="Allow the user to choose a persistent or session grant"/>
   </enum>
 
   <enum name="response_type">
-    <value idx="0" name="accepted_once" description="Accepted once"/>
-    <value idx="1" name="accepted_persistent" description="Accepted with a persistent option"/>
+    <value idx="0" name="accepted_once" description="Accepted for this permission context's session, not a single operation"/>
+    <value idx="1" name="accepted_persistent" description="User consented to persistence; the tavern must still store the grant"/>
     <value idx="2" name="denied" description="Denied"/>
     <value idx="3" name="unavailable" description="Could not prompt the user"/>
+  </enum>
+
+  <enum name="application_identity_kind">
+    <value idx="0" name="unknown" description="no application identity could be attested"/>
+    <value idx="1" name="host_executable" description="identity is an attested executable of a verified same-user, unsandboxed host process"/>
+    <value idx="2" name="flatpak" description="identity is an attested Flatpak application ID"/>
+    <value idx="3" name="internal" description="identity is assigned by the tavern to an internal application"/>
   </enum>
 
   <object name="hp_hyprtavern_permission_authentication_manager_v1" version="1">
@@ -76,54 +89,102 @@
 
       <returns iface="hp_hyprtavern_permission_authentication_transaction_v1"/>
     </c2s>
+
+    <c2s name="request_availability">
+      <description summary="Request current availability">
+        Request the current permission-prompt availability. The manager responds with
+        an availability event.
+      </description>
+    </c2s>
   </object>
 
   <object name="hp_hyprtavern_permission_authentication_transaction_v1" version="1">
     <description summary="Permission transaction object">
       This object represents a permission transaction.
+
+      Identity setters are allowed only before ask_permission. That request freezes
+      all inputs; only destroy is allowed thereafter, including while awaiting the
+      result. Violating this order is a protocol error.
     </description>
 
-    <c2s name="set_app_name">
-      <description summary="Set an app name for this transaction">
-        Set an app name for this transaction. This should be a human-readable name.
+    <c2s name="set_requesting_app_display_name">
+      <description summary="Set the requesting app's display name">
+        Set the human-readable application name shown for this transaction. This is
+        display metadata and must not be treated as an attested identity.
+
+        This optional label must be presented as untrusted application-supplied text,
+        without interpreting markup or control sequences or obscuring the attested
+        identity. Omitting it must not prevent a prompt using the attested identity.
       </description>
 
-      <arg name="name" type="varchar" summary="name"/>
+      <arg name="app_display_name" type="varchar" summary="human-readable application name"/>
     </c2s>
 
-    <c2s name="set_app_identifier">
-      <description summary="Set an app identifier for this transaction">
-        Set an app identifier. This can be a path, a flatpak ID, etc.
+    <c2s name="set_requesting_app_attested_id">
+      <description summary="Set the requesting app's attested identifier">
+        Set the non-human-readable application identifier attested by the tavern for
+        this transaction. Because only a client with core.unobtainium.tavernkeep may
+        bind this protocol, this value is trusted agent metadata rather than an
+        application self-assertion.
 
-        It's not meant to be human-readable.
+        This request is required before ask_permission. identity_kind has the same
+        meaning as in the core protocol and is part of the identifier's namespace.
+        For unknown identity, attested_app_id must be empty and the UI must explicitly
+        identify the requester as unknown rather than treating its display name as
+        verified. Other identity kinds require a nonempty identifier.
       </description>
 
-      <arg name="name" type="varchar" summary="name"/>
+      <arg name="attested_app_id" type="varchar" summary="tavern-attested application identifier"/>
+      <arg name="identity_kind" type="enum" interface="application_identity_kind" summary="kind of the attested application identifier"/>
     </c2s>
 
     <c2s name="ask_permission">
       <description summary="Ask for a permission">
-        Ask the user for a permission. This may be done only once.
+        Ask the user for a permission. This may be done only once, after setting the
+        attested identity. The permission must be promptable under the Hyprtavern
+        permission catalog; core.unobtainium.unsandboxed and
+        core.unobtainium.tavernkeep must never be prompted for.
+        Invalid input is a protocol error.
+
+        The displayed identity, permission, and offered lifetime must match this
+        frozen transaction. A session request must not offer persistent approval;
+        a persist request may offer either session or persistent approval. The
+        tavern must request session when a stable owner or persistence is unavailable.
+
+        Exactly one permission_result follows unless the transaction is destroyed
+        or the connection closes. If prompting is unavailable or becomes unavailable
+        while pending, return unavailable rather than leaving the transaction pending.
       </description>
 
-      <arg name="permission" type="uint" summary="permission"/>
+      <arg name="permission_name" type="varchar" summary="canonical permission name"/>
       <arg name="type" type="enum" interface="ask_type" summary="type"/>
     </c2s>
 
     <s2c name="permission_result">
       <description summary="Permission dialog was interacted with">
-        Response from the manager with the result.
+        Response from the manager with the result. permission_name must exactly
+        match ask_permission. accepted_persistent is valid only for a persist
+        request. accepted_once authorizes a session grant, not one service operation.
+
+        The tavern must apply the result only to the original requesting context
+        and frozen transaction. A mismatched name or invalid lifetime is a protocol
+        error and must not result in a grant. Persistent consent is not proof of a
+        durable write: the tavern must persist the grant before reporting it as
+        permanent through the core protocol.
 
         This object may not be reused, you must not call anything that isn't destroy after this event.
       </description>
 
-      <arg name="permission" type="uint" summary="permission"/>
+      <arg name="permission_name" type="varchar" summary="canonical permission name"/>
       <arg name="result" type="enum" interface="response_type" summary="result"/>
     </s2c>
 
     <c2s name="destroy" destructor="true">
       <description summary="Destroy the object">
-        This request destroys this object.
+        Destroys this transaction and dismisses any pending prompt without granting
+        permission. No result is sent after destruction is processed. A result
+        already sent may race with cancellation; the tavern must ignore it if its
+        requesting context has already been destroyed or become unavailable.
       </description>
     </c2s>
   </object>

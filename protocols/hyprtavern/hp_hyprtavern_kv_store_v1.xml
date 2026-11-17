@@ -34,10 +34,30 @@
   <description>
     The kv_store protocol is implemented for a key-value store for applications.
 
-    It can be expected that the kv store implements proper security measures to protect
-    the values inside. This store is suitable to hold secrets.
+    App-scoped and tavern-scoped values may hold secrets. Their isolation is from
+    sandboxed applications, not unrestricted processes running as the same user.
+    Unbounded values are shared and must not hold secrets.
+
+    Values are persisted in plaintext. The store has no password or lock/unlock
+    state, and initialization must not depend on a display or user interaction.
+    Encryption at rest, if desired, is provided externally, for example by disk
+    encryption. Filesystem and sandbox isolation must prevent sandboxed applications
+    from accessing the backing files directly; protocol namespace checks still apply.
 
     kv_store is an exclusive protocol. It must be exposed with the exclusivity flag.
+    Its provider must be the KV barmaid started and authenticated by the tavern.
+    The tavern reserves this protocol name for that provider; exclusivity or a
+    provider-supplied name alone does not authenticate a secret store.
+
+    For routed connections, the provider must redeem the connection principal
+    token before serving values. App namespaces use the pair of tavern-attested
+    identity kind and application identifier, never a caller-supplied name, PID,
+    sandbox-local executable path, or routed socket peer credentials. App-scoped
+    operations fail with identity_unavailable without a stable attested identity.
+
+    Tavern-scoped values require the tavern's authenticated internal authority;
+    ordinary permission bypass does not grant access. These identity and authority
+    checks use the admitted principal, not later grant changes.
   </description>
 
   <enum name="protocol_errors">
@@ -48,82 +68,133 @@
   <enum name="value_type">
     <value idx="0" name="app_value" description="App value"/>
     <value idx="1" name="unbounded_value" description="Unbounded value"/>
-    <value idx="2" name="tavern_value" description="Restricted type for the tavernkeep"/>
+    <value idx="2" name="tavern_value" description="Restricted to clients with the core.unobtainium.tavernkeep permission"/>
   </enum>
 
   <enum name="value_obtaining_error">
     <value idx="0" name="value_missing" description="Value is missing"/>
     <value idx="1" name="unknown_error" description="Unknown error"/>
+    <value idx="2" name="identity_unavailable" description="App-scoped storage requires a stable attested identity"/>
+    <value idx="3" name="permission_denied" description="The admitted principal cannot access this value type"/>
   </enum>
 
   <object name="hp_hyprtavern_kv_store_manager_v1" version="1">
     <description summary="Kv store manager object">
       This object is a core manager object bound upon creation.
+
+      At most one get_value or set_value request for a given (key, type) pair may
+      be pending on this object. Wait for value_obtained, value_stored, or value_failed
+      before requesting the same pair again; other pairs may be used concurrently.
+      A duplicate pending request is a protocol error.
     </description>
 
     <c2s name="set_value">
       <description summary="Set a value">
         Set a value in the kv store.
 
-        An app value is a value restricted to the calling process' app. "app"
-        refers to the binary path. This does work with sandboxed apps.
+        An app value is restricted to the stable tavern-attested application identity
+        associated with this connection. Executable paths within different sandboxes
+        do not define a shared application namespace.
 
         An unbounded value is a value in a global value pool. It is highly recommended
         to use unique prefixes e.g. myapp:value to avoid trampling other values.
+        Prefixes are a naming convention, not an access restriction: any admitted
+        client may read or overwrite unbounded values.
 
         It is recommended to prefer app values unless an unbounded one is necessary.
 
-        The key has to contain only letters, numbers, or any of the characters: `:/.,-+=?`,
-        otherwise an invalid_key_name error is raised. Value can contain any characters.
+        The key must be nonempty and contain only ASCII letters, numbers, or any
+        of the characters: `:/.,-+=?`, otherwise an invalid_key_name error is raised.
+        Values are NUL-free strings; applications must encode binary data, for
+        example with base64. Embedded NUL bytes are a protocol error and must be
+        rejected before conversion to C strings or any storage mutation, never
+        silently truncated. Setting a value to an empty string deletes the key
+        in the selected namespace, subject to the same access checks as a write.
+        Deleting a missing key succeeds. value_stored confirms durable deletion.
+
+        Exactly one value_stored or value_failed responds to this request unless
+        the connection closes or a protocol error occurs. Success means the update
+        or deletion has been committed durably, not merely queued for writing.
       </description>
 
       <arg name="key" type="varchar" summary="key"/>
-      <arg name="value" type="varchar" summary="value"/>
+      <arg name="value" type="varchar" summary="NUL-free value, or empty to delete"/>
       <arg name="type" type="enum" interface="value_type" summary="type"/>
     </c2s>
 
     <c2s name="get_value">
       <description summary="Get a value">
-        Get a value from the kv store.
+        Get a value from the kv store, using the same key and namespace rules as
+        set_value. Exactly one value_obtained or value_failed follows unless the
+        connection closes or a protocol error occurs.
       </description>
 
       <arg name="key" type="varchar" summary="key"/>
       <arg name="type" type="enum" interface="value_type" summary="type"/>
     </c2s>
 
+    <c2s name="request_store_status">
+      <description summary="Request current store status">
+        Request the current store status. A ready store responds with store_available.
+        No response is emitted while the store is initializing. This request is
+        explicitly allowed before store_available. Completion can be synchronized
+        with a hyprwire roundtrip; completing initialization still emits store_available.
+      </description>
+    </c2s>
+
     <s2c name="store_available">
       <description summary="Kv store is available">
-        The Kv store is by default locked. Sending any request before receiving a
-        store_available event will result in a store_unavailable protocol error.
+        This event is sent when the storage backend is initialized and ready.
+        Sending get_value or set_value before receiving store_available results
+        in a store_unavailable protocol error. request_store_status is allowed
+        during initialization.
 
-        The user will be prompted to unlock the Kv store as soon as it's possible.
+        If the store is already ready, this event is sent immediately upon binding
+        the protocol. Readiness requires no password, display, or user interaction.
+        If initialization fails, the provider must close the connection rather
+        than leave the client waiting indefinitely.
 
-        If the store is already unlocked, this event is sent immediately upon binding
-        the protocol.
+        If this event has not arrived after a roundtrip following binding or a
+        status request, initialization was pending when that roundtrip was processed.
+        This is not a guarantee that it will remain pending.
 
-        It is safe to assume that if the protocol is bound, and after a roundtrip this
-        event is not emitted, the store is closed.
+        Once available, the store remains available for this connection's lifetime.
+        To withdraw the store, the provider must close existing connections
+        before withdrawing availability. Clients must reconnect and wait for a new
+        store_available event; no availability state survives disconnection.
       </description>
     </s2c>
 
     <s2c name="value_obtained">
       <description summary="Value obtained">
-        Response from the kv_store with the value.
+        Response from the kv_store with the NUL-free value.
       </description>
 
       <arg name="key" type="varchar" summary="key"/>
-      <arg name="value" type="varchar" summary="value"/>
+      <arg name="value" type="varchar" summary="NUL-free value"/>
       <arg name="type" type="enum" interface="value_type" summary="type"/>
     </s2c>
 
     <s2c name="value_failed">
       <description summary="Value failed">
-        Response from the kv_store with an error in obtaining the value.
+        Completes the pending get_value or set_value for this (key, type) pair with
+        an error. value_missing applies only to reads. An I/O error does not promise
+        that a partially completed write was rolled back; only value_stored confirms
+        durability. No successful result follows for the same request.
       </description>
 
       <arg name="key" type="varchar" summary="key"/>
       <arg name="type" type="enum" interface="value_type" summary="type"/>
       <arg name="reason" type="enum" interface="value_obtaining_error" summary="reason"/>
+    </s2c>
+
+    <s2c name="value_stored">
+      <description summary="Value update durably committed">
+        Completes the pending set_value for this (key, type) pair after the update
+        or deletion is durably committed. A transport roundtrip alone is not a write acknowledgement.
+      </description>
+      <arg name="key" type="varchar" summary="key"/>
+      <arg name="type" type="enum" interface="value_type" summary="type"/>
     </s2c>
   </object>
 </protocol>

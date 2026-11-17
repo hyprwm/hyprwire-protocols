@@ -34,11 +34,14 @@
   <description>
     The barmaid protocol is an internal protocol for barmaids to report
     readiness for work and other statistics.
-  </description>
 
-  <enum name="protocol_errors">
-    <value idx="0" name="invalid_key_name" description="Invalid key name"/>
-  </enum>
+    Barmaids are started by the tavern. This protocol is available only on the
+    private control channel established for that child at startup, with the
+    tavern as client and the barmaid as server. It must not be advertised or
+    accepted on application-facing connections, including those of unsandboxed
+    applications. The channel authenticates both participants; a process name,
+    executable path, or claimed protocol name is not sufficient authentication.
+  </description>
 
   <object name="hp_hyprtavern_barmaid_manager_v1" version="1">
     <description summary="Barmaid manager object">
@@ -48,12 +51,32 @@
     <s2c name="ready">
       <description summary="Ready">
         This barmaid is ready to serve beer.
+
+        Sent once initialization completes and in response to request_status
+        while ready. Readiness lasts for this control connection; a barmaid that
+        can no longer serve must close it, so the tavern can withdraw its services.
       </description>
     </s2c>
 
+    <c2s name="request_status">
+      <description summary="Request current status">
+        Request the current status. A ready barmaid responds with the ready event.
+        This request is valid before readiness; no response is sent while starting.
+        The eventual ready event is still sent when initialization completes.
+      </description>
+    </c2s>
+
     <c2s name="update_tavern_environment">
       <description summary="Update the tavern's environment">
-        Forwarded event from the core protocol with the same name and functionality.
+        Forward the environment update already validated and authorized by the
+        tavern's core protocol. Only the authenticated tavern may send this request;
+        a caller's ordinary permission bypass does not authorize direct access.
+
+        The array, name, and value rules of the core request apply, including the
+        maximum of 9999 elements per array. Validate the complete update before
+        applying it; malformed updates are protocol errors.
+        This request is valid before ready so the tavern can provide startup
+        display configuration. It does not cause another permission prompt.
       </description>
       <arg name="env_names" type="array varchar" summary="An array of environment variable names"/>
       <arg name="env_values" type="array varchar" summary="An array of environment variable values"/>
