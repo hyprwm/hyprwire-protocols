@@ -258,6 +258,7 @@
   <enum name="bus_object_expose_errors">
     <value idx="0" name="already_exposed" description="registration conflicts with protocol exclusivity"/>
     <value idx="1" name="unauthorized_provider" description="provider is not authorized to register this protocol"/>
+    <value idx="2" name="invalid_registration" description="invalid protocol name, revision, or mandatory infrastructure registration settings"/>
   </enum>
 
   <object name="hp_hyprtavern_bus_object_v1" version="1">
@@ -310,6 +311,10 @@
         Explicitly exposes a supported protocol alongside the revision version
         on the object.
 
+        protocol_name must be nonempty and version must be greater than zero.
+        Protocol names are otherwise opaque and case-sensitive. Violations produce
+        expose_protocol_error with invalid_registration, without changing state.
+
         This allows other apps to discover and request access to a protocol via the bus.
 
         A protocol will only be available on a connection if it was requested through
@@ -332,6 +337,16 @@
         Reserved barmaid protocols may only be registered by their authenticated,
         tavern-started providers; otherwise unauthorized_provider is returned.
         Exclusivity alone does not establish a provider's identity or trust.
+
+        The kv_store and permission_authentication protocols must be registered
+        exclusively. permission_authentication must additionally include
+        core.unobtainium.tavernkeep in its protocol-level required_permissions;
+        an object-level requirement alone is insufficient. An authenticated
+        provider omitting these settings receives invalid_registration. The
+        tavern must not silently add or repair the missing settings.
+
+        The barmaid control protocol is private to startup channels and must
+        never be registered on this application-facing bus.
 
         Exposing the same protocol again on this object atomically replaces its
         registration if valid. Changes affect new admissions, not existing sockets.
