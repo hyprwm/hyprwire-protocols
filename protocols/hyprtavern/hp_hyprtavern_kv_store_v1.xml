@@ -34,15 +34,17 @@
   <description>
     The kv_store protocol is implemented for a key-value store for applications.
 
-    App-scoped and tavern-scoped values may hold secrets. Their isolation is from
-    sandboxed applications, not unrestricted processes running as the same user.
-    Unbounded values are shared and must not hold secrets.
+    App-scoped and tavern-scoped values may hold secrets. By default, their goal
+    isolation is from sandboxed applications, not unrestricted processes running
+    as the same user. Unbounded values are shared and must not hold secrets.
 
     Values are persisted in plaintext. The store has no password or lock/unlock
     state, and initialization must not depend on a display or user interaction.
     Encryption at rest, if desired, is provided externally, for example by disk
     encryption. Filesystem and sandbox isolation must prevent sandboxed applications
     from accessing the backing files directly; protocol namespace checks still apply.
+    Alternative implementations might provide file-backed encryption (e.g. like
+    KWallet for D-Bus) but it is not a requirement.
 
     kv_store is an exclusive protocol. It must be exposed with the exclusivity flag.
     Its provider must be the KV barmaid started and authenticated by the tavern.
