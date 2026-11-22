@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="hp_wallpaper_v1" version="1">
+  <copyright>
+    BSD 3-Clause License
+
+    Copyright (c) 2025, Hyprland Development
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice, this
+        list of conditions and the following disclaimer.
+
+    2. Redistributions in binary form must reproduce the above copyright notice,
+        this list of conditions and the following disclaimer in the documentation
+        and/or other materials provided with the distribution.
+
+    3. Neither the name of the copyright holder nor the names of its
+        contributors may be used to endorse or promote products derived from
+        this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  </copyright>
+
+  <description>
+    The wallpaper protocol allows clients to set and observe the wallpapers
+    displayed by a wallpaper daemon.
+
+    Outputs are identified by the names the compositor advertises for them,
+    e.g. through wl_output.name (DP-1, HDMI-A-1, ...). Output names are opaque
+    and case-sensitive.
+
+    Daemons expose this protocol non-exclusively, with core.settings.basic.wallpaper
+    in its protocol-level required_permissions. Clients must request that
+    permission before connecting.
+
+    Daemons must expose a GLOBAL:WAYLAND_DISPLAY property set to the Wayland
+    display they render on. Clients should query for this protocol filtered by
+    their own WAYLAND_DISPLAY, so that nested or concurrent sessions each reach
+    their own daemon.
+  </description>
+
+  <object name="hp_wallpaper_manager_v1" version="1">
+    <description summary="Wallpaper manager object">
+      This object is a core manager object bound upon creation.
+    </description>
+
+    <c2s name="get_wallpaper_object">
+      <description summary="Create a wallpaper object">
+        Creates a wallpaper object, used to set a wallpaper. See hp_wallpaper_v1.
+      </description>
+      <returns iface="hp_wallpaper_v1"/>
+    </c2s>
+
+    <c2s name="get_status_object">
+      <description summary="Create a status object">
+        Creates a status object, used to observe the displayed wallpapers.
+        See hp_wallpaper_status_v1.
+      </description>
+      <returns iface="hp_wallpaper_status_v1"/>
+    </c2s>
+
+    <s2c name="output_added">
+      <description summary="An output was added">
+        Sent for each existing output immediately after binding, and then for
+        every output added afterwards.
+      </description>
+      <arg name="output_name" type="varchar" summary="the output's name"/>
+    </s2c>
+
+    <s2c name="output_removed">
+      <description summary="An output was removed">
+        Sent when an output previously announced by output_added is removed.
+      </description>
+      <arg name="output_name" type="varchar" summary="the output's name"/>
+    </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy the manager">
+        Destroys this object. Objects created from it remain valid until destroyed.
+      </description>
+    </c2s>
+  </object>
+
+  <enum name="wallpaper_fit_mode">
+    <value idx="0" name="stretch" description="scaled to the output's size, ignoring the aspect ratio"/>
+    <value idx="1" name="cover" description="scaled to cover the whole output, cropping any excess"/>
+    <value idx="2" name="contain" description="scaled to fit entirely within the output"/>
+    <value idx="3" name="tile" description="repeated across the output at its native size"/>
+  </enum>
+
+  <enum name="wallpaper_errors">
+    <value idx="0" name="inert_wallpaper_object" description="attempted to use an inert wallpaper object"/>
+    <value idx="1" name="invalid_fit_mode" description="fit mode provided was invalid"/>
+  </enum>
+
+  <enum name="apply_error">
+    <value idx="0" name="invalid_path" description="path provided was invalid"/>
+    <value idx="1" name="invalid_output" description="output provided was invalid"/>
+    <value idx="2" name="unknown_error" description="unknown error"/>
+  </enum>
+
+  <object name="hp_wallpaper_v1" version="1">
+    <description summary="A wallpaper object">
+      This object describes a wallpaper to apply. Set its state with path,
+      fit_mode and output_name, then send apply.
+
+      After apply, this object is inert. Any request other than destroy raises
+      an inert_wallpaper_object protocol error.
+    </description>
+
+    <c2s name="path">
+      <description summary="Set the image path">
+        Set the image file path for the wallpaper. This is required.
+
+        The path must be absolute. It is resolved in the daemon's filesystem, not
+        the client's: paths inside a client's sandbox may not exist for the daemon.
+      </description>
+      <arg name="path" type="varchar" summary="absolute image path"/>
+    </c2s>
+
+    <c2s name="fit_mode">
+      <description summary="Set the fit mode">
+        Set how the image is fit to the output. Defaults to cover.
+
+        A value outside of wallpaper_fit_mode raises an invalid_fit_mode protocol error.
+      </description>
+      <arg name="fit_mode" type="enum" interface="wallpaper_fit_mode" summary="fit mode"/>
+    </c2s>
+
+    <c2s name="output_name">
+      <description summary="Set the output">
+        Set the output for the wallpaper. Setting this to empty (or not setting it
+        at all) makes it a wildcard fallback, displayed on every output without
+        a wallpaper of its own.
+
+        See hp_wallpaper_manager_v1.output_added and hp_wallpaper_manager_v1.output_removed
+        for tracking output names.
+      </description>
+      <arg name="output_name" type="varchar" summary="output name, or empty for all outputs"/>
+    </c2s>
+
+    <c2s name="apply">
+      <description summary="Apply this wallpaper">
+        Applies this wallpaper, replacing the previous one set for the same output,
+        or the previous wildcard fallback. Exactly one success or failed event follows,
+        unless the client disconnects first.
+
+        Fails with invalid_path if the path was not set, is not absolute, or does not
+        refer to a file the daemon can read. Fails with invalid_output if output_name
+        does not name a present output.
+
+        Whether applied wallpapers persist across daemon restarts is implementation-defined.
+      </description>
+    </c2s>
+
+    <s2c name="success">
+      <description summary="Wallpaper applied">
+        The wallpaper was applied successfully.
+      </description>
+    </s2c>
+
+    <s2c name="failed">
+      <description summary="Wallpaper not applied">
+        The wallpaper was not applied, and the daemon's state is unchanged.
+        See the error for more information.
+      </description>
+      <arg name="error" type="enum" interface="apply_error" summary="reason"/>
+    </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy this object">
+        Destroys this object.
+      </description>
+    </c2s>
+  </object>
+
+  <object name="hp_wallpaper_status_v1" version="1">
+    <description summary="A status object">
+      This object reports the wallpapers displayed on each output.
+    </description>
+
+    <s2c name="active_wallpaper">
+      <description summary="Active wallpaper state">
+        Reports the path of the wallpaper displayed on an output. This is sent for
+        each existing output immediately after creation, and then every time the
+        path displayed on an output changes, including for newly added outputs.
+
+        An empty path means the output displays no wallpaper. The output name is
+        never empty: a wildcard fallback is reported for each output displaying it.
+
+        No event is sent when an output is removed. See hp_wallpaper_manager_v1.output_removed.
+      </description>
+      <arg name="output_name" type="varchar" summary="output name"/>
+      <arg name="path" type="varchar" summary="wallpaper path, or empty for none"/>
+    </s2c>
+
+    <c2s name="destroy" destructor="true">
+      <description summary="Destroy this object">
+        Destroys this object.
+      </description>
+    </c2s>
+  </object>
+</protocol>
