@@ -500,7 +500,8 @@
       data about the object.
 
       Creation emits either failed, or one coherent snapshot consisting of name,
-      protocols, properties, and provider_identity, followed by done. The order of
+      required_permissions, one protocol event per exposed protocol, properties,
+      and provider_identity, followed by done. The order of
       the snapshot events before done is unspecified. This handle remains bound
       to the same registration instance even if the provider subsequently exits.
     </description>
@@ -523,20 +524,27 @@
       <arg name="name" type="varchar" summary="object name"/>
     </s2c>
 
-    <s2c name="protocols">
-      <description summary="Protocols">
-        This event contains the exposed protocols of the object. Two arrays describe names and
-        revisions.
-
-        For example, protocol at protocol_names index 0's max supported version is described by protocol_revs
-        at index 0, and so on.
-
-        The arrays have equal lengths and protocol names are unique. Advertising
-        a protocol here does not imply that the caller may connect to it.
+    <s2c name="required_permissions">
+      <description summary="Object-level permission requirements">
+        The permissions required to discover or connect to the object at all. See
+        hp_hyprtavern_bus_object_v1.require_permissions.
       </description>
 
-      <arg name="protocol_names" type="array varchar" summary="names of the protocols"/>
-      <arg name="protocol_revs" type="array uint" summary="supported revisions of the protocols"/>
+      <arg name="required_permissions" type="array varchar" summary="permissions required to discover or connect to the object"/>
+    </s2c>
+
+    <s2c name="protocol">
+      <description summary="An exposed protocol">
+        Sent once for each protocol the object exposes, with its max supported
+        revision and the permissions required to connect on it, in addition to the
+        object's own requirements. Protocol names are unique within a snapshot.
+
+        Advertising a protocol here does not imply that the caller may connect to it.
+      </description>
+
+      <arg name="protocol_name" type="varchar" summary="name of the protocol"/>
+      <arg name="version" type="uint" summary="max supported revision of the protocol"/>
+      <arg name="required_permissions" type="array varchar" summary="permissions required to connect on this protocol"/>
     </s2c>
 
     <s2c name="properties">
@@ -567,8 +575,9 @@
         the handle is destroyed or the client disconnects first.
 
         This request never opens a permission popup. Clients must explicitly
-        obtain the required permissions before connecting. A stale metadata
-        snapshot or permission result is not a reservation of access.
+        obtain the required permissions, as reported by required_permissions and
+        protocol, before connecting. A stale metadata snapshot or permission result
+        is not a reservation of access.
 
         A client connection may have at most 512 admitted connections whose
         connection principal tokens are neither redeemed nor expired. Further
