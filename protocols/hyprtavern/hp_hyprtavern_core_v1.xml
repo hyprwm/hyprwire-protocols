@@ -151,31 +151,25 @@
         Its grants apply to this client connection, not automatically to other
         connections from the same application.
 
-        The tavern associates the context with the caller's attested application
-        identity, including its identity kind. A persistence token selects an
-        independent saved context owned by that identity; it is not a bearer grant.
-        Restoration requires the same stable attested owner. A token belonging
-        to another owner causes unavailable, without restoring any of its data.
+        Permanent grants are saved per application. The tavern keeps at most one saved
+        context for each stable attested application identity, including its identity
+        kind, and every permission context of that application restores its grants.
+        A saved context is created with the application's first permanent grant.
+        Unstable or unknown identities may only receive session grants and policy
+        decisions.
 
-        Permission contexts use the plaintext session kv_store for persistence.
-        It requires no password or user interaction. If the store is available
-        and the caller has a stable identity, an empty or unknown token creates
-        a new saved context. Unstable or unknown identities may only receive
-        session grants and policy decisions.
-
-        An initializing or unavailable store disables restoration and creation of persistent
-        grants, but session grants and policy decisions remain available. A supplied
-        token is retained as an unverified restoration hint, not replaced or trusted.
-        The persistence_token event carries an empty string until a saved context
-        can be verified or created. The client must retain its previous durable token.
-        When the store becomes available, the tavern retries restoration or creation
-        and emits the durable token. Until then, no grants are restored from the token.
+        Saved contexts are kept in the plaintext session kv_store, which requires no
+        password or user interaction. While the store is initializing or unavailable,
+        permanent grants can be neither restored nor created, but session grants and
+        policy decisions remain available; the tavern restores saved grants once the
+        store becomes available. Requests sent while saved grants are being restored
+        are answered once restoration completes. If the saved context cannot be read,
+        the context continues with session grants and policy decisions only.
 
         The tavern may bypass ordinary permission checks for some principals by policy.
         Applications must not assume such a policy applies and should request every named
         permission they require.
       </description>
-      <arg name="persistence_token" type="varchar" summary="previously issued persistence token, or empty"/>
       <returns iface="hp_hyprtavern_permission_context_v1"/>
     </c2s>
 
@@ -675,7 +669,7 @@
 
   <enum name="security_permission_mode">
     <value idx="0" name="session" description="Until the permission context is destroyed or its client disconnects"/>
-    <value idx="1" name="permanent" description="Persisted for restoration by the same owner and token until revoked"/>
+    <value idx="1" name="permanent" description="Persisted for every context of the same application until revoked"/>
   </enum>
 
   <enum name="security_permission_result">
@@ -726,38 +720,15 @@
     <s2c name="unavailable">
       <description summary="Permission context unavailable">
         This event is emitted if the tavern cannot establish the context, for example
-        because authorization services are not initialized or the supplied token
-        belongs to another identity. It may also follow a deferred restoration that
-        fails its ownership check. No grants remain active through this context.
+        because authorization services are not initialized, or the application's saved
+        context is malformed or exceeds the grant limit. It may also follow a deferred
+        restoration. No grants remain active through this context, and a malformed
+        saved context is never overwritten.
 
         This object is inert. Destroy it before creating another context to retry.
         An unavailable store alone does not make a context unavailable: session grants
         and policy decisions remain possible without persistence.
       </description>
-    </s2c>
-
-    <s2c name="persistence_token">
-      <description summary="This context's persistence token">
-        Emitted on creation unless unavailable is sent instead. A nonempty token
-        identifies a verified, durably stored context owned by the caller's stable
-        attested identity. It matches the supplied token on successful restoration;
-        otherwise it is a newly generated token, never an adopted unknown input token.
-
-        An empty token means no saved context is available yet. It must not replace
-        a token the client previously saved. It conveys no restored permissions.
-        The tavern sends this event again with a nonempty token when deferred
-        restoration or creation succeeds. No retry is possible without a stable
-        attested identity.
-
-        Save nonempty tokens for future restoration, preferably as app-scoped KV
-        values. Read any previously saved token before replacing it; a failed or
-        unavailable KV lookup must not be treated as value_missing. Losing a
-        token loses the reference to that saved context, not its stored grants.
-        A token does not promise that future writes will succeed; permission_result
-        reports whether a grant was actually persisted.
-      </description>
-
-      <arg name="persistence_token" type="varchar" summary="durable restoration token, or empty without a saved context"/>
     </s2c>
 
     <c2s name="set_display_identity">
@@ -770,8 +741,9 @@
         at most 256 bytes and the description at most 2048 bytes long; longer strings
         are an invalid_argument protocol error.
 
-        This data is saved with the context when persistence is available; otherwise
-        it remains session-only. Updating it must not alter an already pending prompt.
+        This data is saved with the application's saved context, if it has one;
+        otherwise it remains session-only. Updating it must not alter an already
+        pending prompt.
       </description>
 
       <arg name="app_display_name" type="varchar" summary="human-readable application name"/>
@@ -822,9 +794,9 @@
       <description summary="Result of a permission request">
         This event completes the request with the matching permission_name.
         grant_mode gives the actual lifetime for granted and already_granted.
-        permanent may only be reported after the grant is durably stored under
-        this context's verified owner and token. A failed persistence write must
-        not be reported as a permanent grant.
+        permanent may only be reported after the grant is durably stored in the
+        saved context of this context's application. A failed persistence write
+        must not be reported as a permanent grant.
 
         For granted_by_policy, denied, and failed, grant_mode is session and has
         no grant-lifetime meaning. Policy decisions are not stored explicit grants.
