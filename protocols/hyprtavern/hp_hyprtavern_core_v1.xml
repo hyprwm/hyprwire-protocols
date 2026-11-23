@@ -275,6 +275,11 @@
     </s2c>
   </object>
 
+  <enum name="exclusivity_mode">
+    <value idx="0" name="shared" description="other objects may expose the protocol too"/>
+    <value idx="1" name="exclusive" description="no other object may expose the protocol"/>
+  </enum>
+
   <enum name="bus_object_expose_errors">
     <value idx="0" name="already_exposed" description="registration conflicts with protocol exclusivity"/>
     <value idx="1" name="unauthorized_provider" description="provider is not authorized to register this protocol"/>
@@ -362,14 +367,21 @@
         object's requirements. Protocol definitions must document their access
         requirements so clients can request permissions before connecting.
 
-        If exclusive_mode is non-zero, no other object may expose this protocol.
+        If exclusive_mode is exclusive, no other object may expose this protocol.
         An existing exclusive registration also rejects later non-exclusive
         registrations. Exclusivity is checked and reserved atomically. Conflicts
         produce expose_protocol_error with already_exposed.
 
+        Exclusive registrations require a provider with verified unsandboxed host
+        status or the tavern's internal authority, so sandboxed applications cannot
+        claim protocol names ahead of their real providers. Other providers receive
+        unauthorized_provider. The tavern may also refuse any other registration by
+        policy with unauthorized_provider.
+
         Reserved barmaid protocols may only be registered by their authenticated,
         tavern-started providers; otherwise unauthorized_provider is returned.
         Exclusivity alone does not establish a provider's identity or trust.
+        Clients that need a particular provider must check provider_identity.
 
         The kv_store and permission_authentication protocols must be registered
         exclusively. permission_authentication must additionally include
@@ -387,7 +399,7 @@
       <arg name="protocol_name" type="varchar" summary="protocol name"/>
       <arg name="version" type="uint" summary="protocol max revision version"/>
       <arg name="required_permissions" type="array varchar" summary="canonical permission names required to bind this protocol"/>
-      <arg name="exclusive_mode" type="uint" summary="exclusivity mode"/>
+      <arg name="exclusive_mode" type="enum" interface="exclusivity_mode" summary="exclusivity mode"/>
     </c2s>
 
     <c2s name="expose_property">
