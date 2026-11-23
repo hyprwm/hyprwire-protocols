@@ -71,6 +71,7 @@
     <value idx="1" name="host_executable" description="identity is an attested executable of a verified same-user, unsandboxed host process"/>
     <value idx="2" name="flatpak" description="identity is an attested Flatpak application ID"/>
     <value idx="3" name="internal" description="identity is assigned by the tavern to an internal application"/>
+    <value idx="4" name="host_application" description="identity is an application ID declared by a verified same-user, unsandboxed host process"/>
   </enum>
 
   <object name="hp_hyprtavern_permission_authentication_manager_v1" version="1">
@@ -139,7 +140,9 @@
         meaning as in the core protocol and is part of the identifier's namespace.
         For unknown identity, attested_app_id must be empty and the UI must explicitly
         identify the requester as unknown rather than treating its display name as
-        verified. Other identity kinds require a nonempty identifier.
+        verified. Other identity kinds require a nonempty identifier. A host_application
+        identifier was declared by the host process itself, and the UI must present it
+        as such.
       </description>
 
       <arg name="attested_app_id" type="varchar" summary="tavern-attested application identifier"/>

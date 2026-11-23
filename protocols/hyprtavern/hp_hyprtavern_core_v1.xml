@@ -112,6 +112,35 @@
       </description>
     </s2c>
 
+    <c2s name="declare_host_application">
+      <description summary="Declare a host application ID">
+        Declare the application ID of a host application, so it gets an identity of
+        its own rather than one shared with every program run by the same executable,
+        e.g. an interpreter, and one that stays stable when updates move the executable.
+
+        app_id is a reverse-DNS application ID, e.g. org.example.App, and should match
+        the application's desktop file ID. It must be at most 255 bytes long and consist
+        of at least two dot-separated elements, each nonempty, made of ASCII letters,
+        digits, _ or -, and not starting with a digit. Other IDs are an invalid_argument
+        protocol error.
+
+        This request may be sent at most once per client connection, after ready and
+        before any other request on any of its managers. A later or repeated declaration
+        is an invalid_state protocol error.
+
+        Only verified same-user, unsandboxed host processes may declare an ID. Their
+        identity then becomes host_application with the declared ID, stable across
+        executions, and they keep their unsandboxed host status. For every other client
+        the declaration is ignored, so applications may always send it.
+
+        A declared ID is not attested against other host processes: any of them may
+        declare any ID. This matches the security model, in which unrestricted processes
+        of the same user are not isolated from each other, but a declared ID must never
+        be treated as stronger than host_executable.
+      </description>
+      <arg name="app_id" type="varchar" summary="reverse-DNS application ID"/>
+    </c2s>
+
     <c2s name="create_permission_context">
       <description summary="Create a permission context">
         Create a permission context that can be used to request permissions.
@@ -667,6 +696,7 @@
     <value idx="1" name="host_executable" description="identity is an attested executable of a verified same-user, unsandboxed host process"/>
     <value idx="2" name="flatpak" description="identity is an attested Flatpak application ID"/>
     <value idx="3" name="internal" description="identity is assigned by the tavern to an internal application"/>
+    <value idx="4" name="host_application" description="identity is an application ID declared by a verified same-user, unsandboxed host process"/>
   </enum>
 
   <enum name="permission_policy">
@@ -865,11 +895,12 @@
         by the application. attested_app_id is interpreted according to identity_kind.
         stable_across_executions is non-zero only when this identity is stable across executions.
 
-        host_executable guarantees that the admitted process was positively
-        verified as unsandboxed and had the same effective UID as the tavern.
-        It attests core.unobtainium.unsandboxed independently of permission_policy,
+        host_executable and host_application guarantee that the admitted process was
+        positively verified as unsandboxed and had the same effective UID as the tavern.
+        They attest core.unobtainium.unsandboxed independently of permission_policy,
         including when ordinary permission bypass is disabled. Missing or ambiguous
-        sandbox information must never be reported as host_executable.
+        sandbox information must never be reported as either. The identifier of
+        host_application is declared by the process itself, see declare_host_application.
 
         Unknown identity has an empty identifier and stable_across_executions equal
         to zero. Unknown or unstable identities cannot own persistent app-scoped state.
