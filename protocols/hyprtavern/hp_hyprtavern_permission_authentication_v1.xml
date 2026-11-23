@@ -46,6 +46,12 @@
     permission_authentication is an exclusive protocol. It must be exposed with the exclusivity flag.
   </description>
 
+  <enum name="protocol_errors">
+    <value idx="0" name="invalid_argument" description="a malformed argument, e.g. an out-of-range enum value or a mismatched identity"/>
+    <value idx="1" name="invalid_state" description="a request out of the transaction's order"/>
+    <value idx="2" name="invalid_permission" description="a permission that cannot be prompted for"/>
+  </enum>
+
   <enum name="ask_type">
     <value idx="0" name="session" description="Until the requesting permission context ends"/>
     <value idx="1" name="persist" description="Allow the user to choose a persistent or session grant"/>
@@ -104,7 +110,7 @@
 
       Identity setters are allowed only before ask_permission. That request freezes
       all inputs; only destroy is allowed thereafter, including while awaiting the
-      result. Violating this order is a protocol error.
+      result. Violating this order is an invalid_state protocol error.
     </description>
 
     <c2s name="set_requesting_app_display_name">
@@ -143,8 +149,9 @@
         Ask the user for a permission. This may be done only once, after setting the
         attested identity. The permission must be promptable under the Hyprtavern
         permission catalog; core.unobtainium.unsandboxed and
-        core.unobtainium.tavernkeep must never be prompted for.
-        Invalid input is a protocol error.
+        core.unobtainium.tavernkeep must never be prompted for. A permission that
+        cannot be prompted for is an invalid_permission protocol error, and other
+        invalid input is an invalid_argument one.
 
         The displayed identity, permission, and offered lifetime must match this
         frozen transaction. A session request must not offer persistent approval;

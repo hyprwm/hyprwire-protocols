@@ -65,6 +65,8 @@
   <enum name="protocol_errors">
     <value idx="0" name="invalid_key_name" description="Invalid key name"/>
     <value idx="1" name="store_unavailable" description="Kv store is unavailable"/>
+    <value idx="2" name="invalid_argument" description="a malformed argument, e.g. an out-of-range value type"/>
+    <value idx="3" name="invalid_state" description="a duplicate pending request"/>
   </enum>
 
   <enum name="value_type">
@@ -87,7 +89,7 @@
       At most one get_value or set_value request for a given (key, type) pair may
       be pending on this object. Wait for value_obtained, value_stored, or value_failed
       before requesting the same pair again; other pairs may be used concurrently.
-      A duplicate pending request is a protocol error.
+      A duplicate pending request is an invalid_state protocol error.
     </description>
 
     <c2s name="set_value">

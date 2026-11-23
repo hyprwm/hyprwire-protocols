@@ -43,6 +43,10 @@
     executable path, or claimed protocol name is not sufficient authentication.
   </description>
 
+  <enum name="protocol_errors">
+    <value idx="0" name="invalid_argument" description="a malformed argument, e.g. a malformed environment update"/>
+  </enum>
+
   <object name="hp_hyprtavern_barmaid_manager_v1" version="1">
     <description summary="Barmaid manager object">
       This object is a core manager object bound upon creation.
@@ -74,7 +78,7 @@
 
         The array, name, and value rules of the core request apply, including the
         maximum of 65535 elements per array. Validate the complete update before
-        applying it; malformed updates are protocol errors.
+        applying it; malformed updates are invalid_argument protocol errors.
         This request is valid before ready so the tavern can provide startup
         display configuration. It does not cause another permission prompt.
       </description>
