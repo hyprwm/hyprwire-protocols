@@ -78,7 +78,7 @@
     <value idx="1" name="invalid_state" description="a request that is not allowed in the object's current state"/>
     <value idx="2" name="not_ready" description="a request sent before the manager's ready event"/>
     <value idx="3" name="invalid_permission" description="a malformed permission name, or one that cannot be used in this request"/>
-    <value idx="4" name="invalid_property" description="a malformed property name, or a malformed query property"/>
+    <value idx="4" name="invalid_property" description="a malformed property name or value, or a malformed query property"/>
     <value idx="5" name="limit_exceeded" description="a registration limit was exceeded"/>
   </enum>
 
@@ -159,7 +159,8 @@
 
         You are allowed to expose multiple objects, but it is discouraged.
 
-        object_name does not have to be unique on the bus.
+        object_name does not have to be unique on the bus. It may be at most 256
+        bytes long; a longer name is an invalid_argument protocol error.
 
         required_permissions supplies the initial object-level visibility and
         connection requirements. These are applied atomically with creation, so
@@ -179,8 +180,8 @@
         any, leave the array empty.
 
         Each string in the list of properties must come in the form of (name)=(value),
-        split at the first equals sign. The name follows expose_property's grammar.
-        An invalid_property error is raised otherwise. Values are matched exactly.
+        split at the first equals sign. The name and value follow expose_property's
+        rules. An invalid_property error is raised otherwise. Values are matched exactly.
 
         An empty filter array imposes no constraint, regardless of its filter mode.
         The protocol and property filters must both match. Only objects visible to
@@ -317,7 +318,8 @@
         Explicitly exposes a supported protocol alongside the revision version
         on the object.
 
-        protocol_name must be nonempty and version must be greater than zero.
+        protocol_name must be nonempty and at most 255 bytes long, and version
+        must be greater than zero.
         Protocol names are otherwise opaque and case-sensitive. Violations produce
         expose_protocol_error with invalid_registration, without changing state.
 
@@ -376,7 +378,8 @@
         Property names must come in the form of (group):(name). Group of "GLOBAL" describes
         a non-protocol-specific property, e.g. GLOBAL:WAYLAND_DISPLAY. Both group and name
         must be nonempty ASCII strings containing only letters, numbers, _ or +.
-        Other names are an invalid_property protocol error.
+        Names may be at most 255 bytes long and values at most 4096 bytes. Other
+        names or values are an invalid_property protocol error.
 
         Setting a property value to an empty string removes the property.
 
@@ -687,7 +690,9 @@
         application to the user.
 
         These strings are self-asserted by the application. They are not an attested
-        application identity and must not be used for authorization.
+        application identity and must not be used for authorization. The name may be
+        at most 256 bytes and the description at most 2048 bytes long; longer strings
+        are an invalid_argument protocol error.
 
         This data is saved with the context when persistence is available; otherwise
         it remains session-only. Updating it must not alter an already pending prompt.

@@ -80,6 +80,7 @@
     <value idx="1" name="unknown_error" description="Unknown error"/>
     <value idx="2" name="identity_unavailable" description="App-scoped storage requires a stable attested identity"/>
     <value idx="3" name="permission_denied" description="The admitted principal cannot access this value type"/>
+    <value idx="4" name="quota_exceeded" description="The store has no room for another key"/>
   </enum>
 
   <object name="hp_hyprtavern_kv_store_manager_v1" version="1">
@@ -107,12 +108,13 @@
 
         It is recommended to prefer app values unless an unbounded one is necessary.
 
-        The key must be nonempty and contain only ASCII letters, numbers, or any
-        of the characters: `:/.,-+=?`, otherwise an invalid_key_name error is raised.
-        Values are NUL-free strings; applications must encode binary data, for
-        example with base64. Embedded NUL bytes are a protocol error and must be
-        rejected before conversion to C strings or any storage mutation, never
-        silently truncated. Setting a value to an empty string deletes the key
+        The key must be nonempty, at most 1024 bytes long, and contain only ASCII
+        letters, numbers, or any of the characters: `:/.,-+=?`, otherwise an
+        invalid_key_name error is raised. Values are NUL-free strings of at most
+        1048576 bytes; a longer value is an invalid_argument protocol error.
+        Applications must encode binary data, for example with base64. Embedded
+        NUL bytes are a protocol error and must be rejected before conversion to
+        C strings or any storage mutation, never silently truncated. Setting a value to an empty string deletes the key
         in the selected namespace, subject to the same access checks as a write.
         Deleting a missing key succeeds. value_stored confirms durable deletion.
 
@@ -182,7 +184,8 @@
     <s2c name="value_failed">
       <description summary="Value failed">
         Completes the pending get_value or set_value for this (key, type) pair with
-        an error. value_missing applies only to reads. An I/O error does not promise
+        an error. value_missing applies only to reads, and quota_exceeded only to
+        writes that would add a key to a full store. An I/O error does not promise
         that a partially completed write was rolled back; only value_stored confirms
         durability. No successful result follows for the same request.
       </description>
