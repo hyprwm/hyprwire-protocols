@@ -42,6 +42,13 @@
 
     Protocol errors raised by the tavern use the codes of protocol_errors.
 
+    Later revisions may add values to enums. A sender must only use values
+    defined in the version of the object it bound; an unknown value in a
+    request is an invalid_argument protocol error. Receivers of events must
+    handle unknown values conservatively: unknown identity kinds as unknown,
+    unknown authorities and policies as the least privileged value, and any
+    other unknown value as a failure.
+
     Each array may contain at most 65535 elements. An oversized input array is an
     invalid_argument protocol error. The tavern must never emit oversized or silently
     truncated arrays, including query results, metadata, and explicit grant snapshots.

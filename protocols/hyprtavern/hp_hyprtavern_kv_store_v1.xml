@@ -60,6 +60,8 @@
     Tavern-scoped values require the tavern's authenticated internal authority;
     ordinary permission bypass does not grant access. These identity and authority
     checks use the admitted principal, not later grant changes.
+
+    The rules of hp_hyprtavern_core_v1 for unknown enum values apply.
   </description>
 
   <enum name="protocol_errors">

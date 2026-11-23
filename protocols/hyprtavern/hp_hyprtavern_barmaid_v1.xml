@@ -41,6 +41,8 @@
     accepted on application-facing connections, including those of unsandboxed
     applications. The channel authenticates both participants; a process name,
     executable path, or claimed protocol name is not sufficient authentication.
+
+    The rules of hp_hyprtavern_core_v1 for unknown enum values apply.
   </description>
 
   <enum name="protocol_errors">

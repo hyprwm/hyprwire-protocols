@@ -44,6 +44,8 @@
     ordinary permission bypass does not confer that authority.
 
     permission_authentication is an exclusive protocol. It must be exposed with the exclusivity flag.
+
+    The rules of hp_hyprtavern_core_v1 for unknown enum values apply.
   </description>
 
   <enum name="protocol_errors">
