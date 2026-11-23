@@ -39,11 +39,11 @@
     Permission names and matching rules are defined by Hyprtavern's permission
     catalog (docs/PERMISSIONS.md in the hyprtavern repository).
 
-    Each array may contain at most 9999 elements. An oversized input array is a
+    Each array may contain at most 65535 elements. An oversized input array is a
     protocol error. The tavern must never emit oversized or silently truncated
     arrays, including query results, metadata, and explicit grant snapshots.
 
-    To keep snapshots representable, the bus may have at most 9999 live bus
+    To keep snapshots representable, the bus may have at most 65535 live bus
     objects in total, across all clients. Each object may expose at most 9999
     distinct protocols and 9999 properties. A request that would exceed these
     registration limits is a protocol error and must not be applied. Replacing
@@ -429,7 +429,7 @@
         a snapshot, not a subscription: objects may change or disappear before a
         handle is obtained. No visibility or connection authorization is reserved.
         All matches are returned; the bus-wide registration limit ensures that
-        there are at most 9999 IDs, without truncation or pagination.
+        there are at most 65535 IDs, without truncation or pagination.
       </description>
       <arg name="matches" type="array uint" summary="matched IDs"/>
     </s2c>

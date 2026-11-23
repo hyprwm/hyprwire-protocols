@@ -73,7 +73,7 @@
         a caller's ordinary permission bypass does not authorize direct access.
 
         The array, name, and value rules of the core request apply, including the
-        maximum of 9999 elements per array. Validate the complete update before
+        maximum of 65535 elements per array. Validate the complete update before
         applying it; malformed updates are protocol errors.
         This request is valid before ready so the tavern can provide startup
         display configuration. It does not cause another permission prompt.
