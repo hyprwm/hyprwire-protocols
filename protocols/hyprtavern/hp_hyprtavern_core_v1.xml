@@ -44,8 +44,9 @@
     arrays, including query results, metadata, and explicit grant snapshots.
 
     To keep snapshots representable, the bus may have at most 65535 live bus
-    objects in total, across all clients. Each object may expose at most 9999
-    distinct protocols and 9999 properties. A request that would exceed these
+    objects in total, across all clients. Each client connection may own at
+    most 512 live bus objects, and each object may expose at most 512 distinct
+    protocols and 512 properties. A request that would exceed these
     registration limits is a protocol error and must not be applied. Replacing
     an existing entry or removing one does not consume an additional slot.
     Permission grant limits are defined by hp_hyprtavern_permission_context_v1.
@@ -523,6 +524,10 @@
         obtain the required permissions before connecting. A stale metadata
         snapshot or permission result is not a reservation of access.
 
+        A client connection may have at most 512 admitted connections whose
+        connection principal tokens are neither redeemed nor expired. Further
+        attempts fail with unknown_error until tokens are redeemed or expire.
+
         An empty protocol_names or duplicate name is a protocol error.
       </description>
       <arg name="protocol_names" type="array varchar" summary="protocols requested"/>
@@ -624,7 +629,7 @@
       Expiration or revocation affects future admissions, not existing routed sockets.
 
       The union of session and permanent explicit grants may contain at most
-      9999 distinct permission names. A request that would exceed this limit
+      512 distinct permission names. A request that would exceed this limit
       returns permission_result with failed without adding or persisting a grant.
       Restoration that would exceed the limit makes the context unavailable;
       grants must not be partially restored or silently truncated.
@@ -708,8 +713,10 @@
 
         At most one request for a given permission_name may be pending on this
         context. A duplicate pending request is a protocol error; different names
-        may be requested concurrently. Each request receives exactly one result
-        unless the context becomes unavailable, is destroyed, or its client disconnects.
+        may be requested concurrently. At most 512 requests may be pending on a
+        context; further requests return permission_result with failed. Each
+        request receives exactly one result unless the context becomes unavailable,
+        is destroyed, or its client disconnects.
 
         ask_mode is the maximum lifetime requested. A permanent request may yield
         a session grant if the user chooses it or persistence is unavailable; the
@@ -827,7 +834,7 @@
     <s2c name="explicit_permission_grants">
       <description summary="Explicit permission grants">
         Reports only canonical permission names explicitly granted to this principal.
-        Each name appears at most once, with at most 9999 names in total.
+        Each name appears at most once, with at most 512 names in total.
         Policy bypass is reported separately by authority and must not be inferred from
         this list. An empty list does not negate a bypass_ordinary_permissions policy.
 
