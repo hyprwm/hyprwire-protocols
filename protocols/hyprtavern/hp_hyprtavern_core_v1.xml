@@ -39,6 +39,9 @@
     Permission names and matching rules are defined by Hyprtavern's permission
     catalog (docs/PERMISSIONS.md in the hyprtavern repository). A malformed
     permission name in any request is an invalid_permission protocol error.
+    A well-formed name in the reserved core namespace that the tavern does not
+    know is not an error: requests for it fail, and requirements containing it
+    are never satisfied. This lets the catalog grow without breaking older taverns.
 
     Protocol errors raised by the tavern use the codes of protocol_errors.
 
@@ -725,7 +728,8 @@
         Permissions are identified by canonical dotted names. A permission group may define
         a canonical catch-all name for all permissions within that group.
         core.unobtainium.tavernkeep is not requestable; requesting it is an
-        invalid_permission protocol error.
+        invalid_permission protocol error. A core permission the tavern does
+        not know returns failed.
 
         permission_result will be emitted some time after this request to indicate
         a success or failure. A client must not assume it has a permission before
